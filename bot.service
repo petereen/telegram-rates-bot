@@ -1,0 +1,18 @@
+[Unit]
+Description=Telegram Exchange Rates Bot
+After=network.target
+
+[Service]
+Type=simple
+User=botuser
+Group=botuser
+WorkingDirectory=/opt/telegram-rates-bot
+EnvironmentFile=/opt/telegram-rates-bot/.env
+ExecStart=/opt/telegram-rates-bot/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
