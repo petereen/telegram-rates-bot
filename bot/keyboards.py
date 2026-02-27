@@ -36,6 +36,7 @@ def pairs_keyboard(provider_name: str, subscribed: set[str] | None = None) -> In
     prov = get_provider(provider_name)
     buttons: list[list[InlineKeyboardButton]] = []
 
+    row: list[InlineKeyboardButton] = []
     for sym, label in prov.PAIRS.items():
         if sym in subscribed:
             text = f"✅ {sym}"
@@ -43,9 +44,14 @@ def pairs_keyboard(provider_name: str, subscribed: set[str] | None = None) -> In
         else:
             text = f"  {sym}"
             cb = f"add:{provider_name}:{sym}"
-        buttons.append([InlineKeyboardButton(text, callback_data=cb)])
+        row.append(InlineKeyboardButton(text, callback_data=cb))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
 
     buttons.append(
-        [InlineKeyboardButton("⬅️ Back", callback_data="back:providers")]
+        [InlineKeyboardButton("⬅️ Буцах", callback_data="back:providers")]
     )
     return InlineKeyboardMarkup(buttons)

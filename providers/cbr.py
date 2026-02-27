@@ -28,6 +28,21 @@ _CBR_CODE_MAP: dict[str, str] = {
     "JPY/RUB": "JPY",
     "TRY/RUB": "TRY",
     "KZT/RUB": "KZT",
+    "CHF/RUB": "CHF",
+    "CAD/RUB": "CAD",
+    "AUD/RUB": "AUD",
+    "SGD/RUB": "SGD",
+    "AED/RUB": "AED",
+    "KRW/RUB": "KRW",
+    "INR/RUB": "INR",
+    "BYN/RUB": "BYN",
+    "HKD/RUB": "HKD",
+    "SEK/RUB": "SEK",
+    "NOK/RUB": "NOK",
+    "DKK/RUB": "DKK",
+    "PLN/RUB": "PLN",
+    "CZK/RUB": "CZK",
+    "HUF/RUB": "HUF",
 }
 
 
@@ -42,6 +57,21 @@ class CBRProvider(BaseProvider):
         "JPY/RUB": "Yen → Ruble",
         "TRY/RUB": "Lira → Ruble",
         "KZT/RUB": "Tenge → Ruble",
+        "CHF/RUB": "Swiss Franc → Ruble",
+        "CAD/RUB": "Canadian Dollar → Ruble",
+        "AUD/RUB": "Australian Dollar → Ruble",
+        "SGD/RUB": "Singapore Dollar → Ruble",
+        "AED/RUB": "UAE Dirham → Ruble",
+        "KRW/RUB": "Korean Won → Ruble",
+        "INR/RUB": "Indian Rupee → Ruble",
+        "BYN/RUB": "Belarusian Ruble → Ruble",
+        "HKD/RUB": "Hong Kong Dollar → Ruble",
+        "SEK/RUB": "Swedish Krona → Ruble",
+        "NOK/RUB": "Norwegian Krone → Ruble",
+        "DKK/RUB": "Danish Krone → Ruble",
+        "PLN/RUB": "Polish Zloty → Ruble",
+        "CZK/RUB": "Czech Koruna → Ruble",
+        "HUF/RUB": "Hungarian Forint → Ruble",
     }
 
     # We fetch the entire XML once and parse all currencies.

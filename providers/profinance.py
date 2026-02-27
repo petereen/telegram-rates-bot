@@ -42,6 +42,26 @@ _PAIR_CONFIG: dict[str, dict[str, str]] = {
         "url": "https://www.profinance.ru/currency_cny.asp",
         "label": "CNY/RUB",
     },
+    "GBP/RUB": {
+        "url": "https://www.profinance.ru/currency_gbp.asp",
+        "label": "GBP/RUB",
+    },
+    "CHF/RUB": {
+        "url": "https://www.profinance.ru/currency_chf.asp",
+        "label": "CHF/RUB",
+    },
+    "JPY/RUB": {
+        "url": "https://www.profinance.ru/currency_jpy.asp",
+        "label": "JPY/RUB",
+    },
+    "TRY/RUB": {
+        "url": "https://www.profinance.ru/currency_try.asp",
+        "label": "TRY/RUB",
+    },
+    "KZT/RUB": {
+        "url": "https://www.profinance.ru/currency_kzt.asp",
+        "label": "KZT/RUB",
+    },
 }
 
 
@@ -52,6 +72,11 @@ class ProfinanceProvider(BaseProvider):
         "USD/RUB": "Dollar / Ruble bid-ask",
         "EUR/RUB": "Euro / Ruble bid-ask",
         "CNY/RUB": "Yuan / Ruble bid-ask",
+        "GBP/RUB": "Pound / Ruble bid-ask",
+        "CHF/RUB": "Franc / Ruble bid-ask",
+        "JPY/RUB": "Yen / Ruble bid-ask",
+        "TRY/RUB": "Lira / Ruble bid-ask",
+        "KZT/RUB": "Tenge / Ruble bid-ask",
     }
 
     def fetch(self, symbol: str) -> dict[str, Any]:

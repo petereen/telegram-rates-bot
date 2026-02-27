@@ -22,11 +22,29 @@ SPOT_URL = "https://api.binance.com/api/v3/ticker/price"
 P2P_URL = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
 
 _SPOT_SYMBOLS: dict[str, str] = {
-    "BTC/USDT": "BTCUSDT",
-    "ETH/USDT": "ETHUSDT",
-    "BNB/USDT": "BNBUSDT",
-    "SOL/USDT": "SOLUSDT",
-    "XRP/USDT": "XRPUSDT",
+    "BTC/USDT":  "BTCUSDT",
+    "ETH/USDT":  "ETHUSDT",
+    "BNB/USDT":  "BNBUSDT",
+    "SOL/USDT":  "SOLUSDT",
+    "XRP/USDT":  "XRPUSDT",
+    "DOGE/USDT": "DOGEUSDT",
+    "ADA/USDT":  "ADAUSDT",
+    "AVAX/USDT": "AVAXUSDT",
+    "DOT/USDT":  "DOTUSDT",
+    "LTC/USDT":  "LTCUSDT",
+    "LINK/USDT": "LINKUSDT",
+    "TON/USDT":  "TONUSDT",
+    "TRX/USDT":  "TRXUSDT",
+    "MATIC/USDT": "MATICUSDT",
+    "UNI/USDT":  "UNIUSDT",
+    "NEAR/USDT": "NEARUSDT",
+    "APT/USDT":  "APTUSDT",
+    "SUI/USDT":  "SUIUSDT",
+    "OP/USDT":   "OPUSDT",
+    "ARB/USDT":  "ARBUSDT",
+    "PEPE/USDT": "PEPEUSDT",
+    "NOT/USDT":  "NOTUSDT",
+    "SHIB/USDT": "SHIBUSDT",
 }
 
 # P2P pairs: key = our symbol, value = (asset, fiat)
@@ -35,6 +53,13 @@ _P2P_PAIRS: dict[str, tuple[str, str]] = {
     "P2P USDT/CNY": ("USDT", "CNY"),
     "P2P BTC/RUB":  ("BTC",  "RUB"),
     "P2P CNY":      ("USDT", "CNY"),
+    "P2P USDT/KZT": ("USDT", "KZT"),
+    "P2P USDT/TRY": ("USDT", "TRY"),
+    "P2P USDT/UAH": ("USDT", "UAH"),
+    "P2P USDT/GEL": ("USDT", "GEL"),
+    "P2P USDT/AED": ("USDT", "AED"),
+    "P2P BTC/CNY":  ("BTC",  "CNY"),
+    "P2P ETH/RUB":  ("ETH",  "RUB"),
 }
 
 
@@ -47,6 +72,13 @@ class BinanceProvider(BaseProvider):
         "P2P USDT/CNY": "P2P USDT → CNY (median)",
         "P2P BTC/RUB":  "P2P BTC → RUB (median)",
         "P2P CNY":      "P2P USDT → CNY (short)",
+        "P2P USDT/KZT": "P2P USDT → KZT (median)",
+        "P2P USDT/TRY": "P2P USDT → TRY (median)",
+        "P2P USDT/UAH": "P2P USDT → UAH (median)",
+        "P2P USDT/GEL": "P2P USDT → GEL (median)",
+        "P2P USDT/AED": "P2P USDT → AED (median)",
+        "P2P BTC/CNY":  "P2P BTC → CNY (median)",
+        "P2P ETH/RUB":  "P2P ETH → RUB (median)",
     }
 
     def fetch(self, symbol: str) -> dict[str, Any]:

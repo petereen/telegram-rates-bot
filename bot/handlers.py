@@ -37,13 +37,13 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
     ensure_user(user.id, user.username)
     await update.message.reply_text(
-        "Welcome to the Exchange Rates Bot!\n\n"
-        "/add  – add pairs to your watchlist\n"
-        "/list – show current watchlist\n"
-        "/rates – fetch latest rates\n"
-        "/remove – remove a pair\n"
-        "/clear – clear entire watchlist\n"
-        "/help – show this help message",
+        "Дараах коммандуудыг ашиглан бот ашиглана уу\n\n"
+        "/add  – валютын хослол нэмэх\n"
+        "/list – хадгалсан валютын жагсаалт\n"
+        "/rates – ханшийн жагсаалт авах\n"
+        "/remove – валютын хослол хасах\n"
+        "/clear – валютын жагсаалт устгах\n"
+        "/help – тусламж",
     )
 
 
@@ -51,12 +51,13 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
     await update.message.reply_text(
-        "/add  – open provider menu to add pairs\n"
-        "/list – show current watchlist\n"
-        "/rates – fetch latest rates for your watchlist\n"
-        "/remove – open provider menu to remove pairs\n"
-        "/clear – clear entire watchlist\n"
-        "/help – show this help message",
+        "/add  – валютын хослол нэмэх\n"
+        "/list – хадгалсан валютын жагсаалт\n"
+        "/rates – ханшийн жагсаалт авах\n"
+        "/remove – валютын хослол хасах\n"
+        "/clear – валютын жагсаалт устгах\n"
+        "/help – тусламж",
+
     )
 
 
@@ -67,7 +68,7 @@ async def cmd_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
     ensure_user(update.effective_user.id, update.effective_user.username)  # type: ignore[union-attr]
     await update.message.reply_text(
-        "Choose a provider:", reply_markup=providers_keyboard()
+        "Валютын ханш авах эх сурвалж сонгоно уу:", reply_markup=providers_keyboard()
     )
 
 
@@ -79,10 +80,10 @@ async def cmd_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id  # type: ignore[union-attr]
     subs = get_subscriptions(user_id)
     if not subs:
-        await update.message.reply_text("Your watchlist is empty.")
+        await update.message.reply_text("Жагсаалт хоосон байна.")
         return
     await update.message.reply_text(
-        "Choose a provider to manage:", reply_markup=providers_keyboard()
+        "Хасах валютын ханшийн эх сурвалж сонгоно уу:", reply_markup=providers_keyboard()
     )
 
 
@@ -94,7 +95,7 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id  # type: ignore[union-attr]
     subs = get_subscriptions(user_id)
     if not subs:
-        await update.message.reply_text("Your watchlist is empty. Use /add to get started.")
+        await update.message.reply_text("Жагсаалт хоосон байна. /add ашиглан нэмнэ үү.")
         return
 
     grouped: dict[str, list[str]] = defaultdict(list)
@@ -117,7 +118,7 @@ async def cmd_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id  # type: ignore[union-attr]
     count = clear_subscriptions(user_id)
     await update.message.reply_text(
-        f"Removed {count} pair(s) from your watchlist."
+        f"{count} хослол жагсаалтаас хасагдлаа."
     )
 
 
@@ -130,11 +131,11 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     subs = get_subscriptions(user_id)
     if not subs:
         await update.message.reply_text(
-            "Your watchlist is empty. Use /add first."
+            "Жагсаалт хоосон байна. Эхлээд /add ашиглана уу."
         )
         return
 
-    await update.message.reply_text("Fetching rates, please wait…")
+    await update.message.reply_text("Ханш татаж байна, түр хүлээнэ үү…")
 
     # Group subscriptions by provider to output with blank-line separation
     grouped: dict[str, list[str]] = defaultdict(list)
@@ -147,7 +148,7 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             provider = get_provider(prov_name)
         except ValueError:
-            block_lines.append(f"{prov_name}: provider unavailable")
+            block_lines.append(f"{prov_name}: эх сурвалжаас ханш татах боломжгүй")
             output_blocks.append("\n".join(block_lines))
             continue
 
@@ -157,7 +158,7 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 block_lines.extend(data.get("lines", [f"{prov_name} {sym}: –"]))
             except Exception as exc:
                 log.error("Error fetching %s/%s: %s", prov_name, sym, exc)
-                block_lines.append(f"{prov_name} {sym}: error")
+                block_lines.append(f"{prov_name} {sym}: алдаа")
 
         output_blocks.append("\n".join(block_lines))
 
@@ -184,41 +185,41 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
             s["symbol"] for s in subs if s["provider"] == provider_name
         }
         await query.edit_message_text(
-            f"Select pairs for {provider_name}:",
+            f"{provider_name} валютын хослол сонгоно уу:",
             reply_markup=pairs_keyboard(provider_name, subscribed),
         )
 
     elif data.startswith("add:"):
         _, provider_name, sym = data.split(":", 2)
         added = add_subscription(user_id, provider_name, sym)
-        status = "✅ Added" if added else "Already in watchlist"
+        status = "✅ Нэмэгдлээ" if added else "Аль хэдийн нэмэгдсэн байна"
 
         subs = get_subscriptions(user_id)
         subscribed = {
             s["symbol"] for s in subs if s["provider"] == provider_name
         }
         await query.edit_message_text(
-            f"{status}: {provider_name} {sym}\n\nSelect more or go back:",
+            f"{status}: {provider_name} {sym}\n\nЦааш сонгох эсвэл буцах:",
             reply_markup=pairs_keyboard(provider_name, subscribed),
         )
 
     elif data.startswith("del:"):
         _, provider_name, sym = data.split(":", 2)
         removed = remove_subscription(user_id, provider_name, sym)
-        status = "❌ Removed" if removed else "Not in watchlist"
+        status = "❌ Хасагдлаа" if removed else "Жагсаалтад байхгүй"
 
         subs = get_subscriptions(user_id)
         subscribed = {
             s["symbol"] for s in subs if s["provider"] == provider_name
         }
         await query.edit_message_text(
-            f"{status}: {provider_name} {sym}\n\nSelect more or go back:",
+            f"{status}: {provider_name} {sym}\n\nЦааш сонгох эсвэл буцах:",
             reply_markup=pairs_keyboard(provider_name, subscribed),
         )
 
     elif data == "back:providers":
         await query.edit_message_text(
-            "Choose a provider:", reply_markup=providers_keyboard()
+            "Эх сурвалж сонгоно уу:", reply_markup=providers_keyboard()
         )
 
 
