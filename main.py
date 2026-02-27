@@ -18,7 +18,7 @@ import providers.xe        # noqa: F401
 import providers.binance   # noqa: F401
 import providers.profinance  # noqa: F401
 import providers.boc       # noqa: F401
-import providers.grx       # noqa: F401
+import providers.rapira    # noqa: F401
 
 
 logging.basicConfig(
