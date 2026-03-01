@@ -131,8 +131,8 @@ class BOCProvider(BaseProvider):
                 continue
 
             lines = [
-                f"BOC {symbol}/CNY Buy:  {buy_rate:.4f}",
-                f"BOC {symbol}/CNY Sell: {sell_rate:.4f}",
+                f"BOC {symbol}/CNY Buy:  `{buy_rate:.4f}`",
+                f"BOC {symbol}/CNY Sell: `{sell_rate:.4f}`",
             ]
             return {"lines": lines, "buy": buy_rate, "sell": sell_rate}
 

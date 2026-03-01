@@ -102,7 +102,7 @@ class BinanceProvider(BaseProvider):
             log.error("Binance spot error: %s", exc)
             return {"lines": [f"Binance Spot {symbol}: fetch error"]}
 
-        line = f"Binance Spot {symbol}: {price:.4f}"
+        line = f"Binance Spot {symbol}: `{price:.4f}`"
         return {"lines": [line], "rate": price}
 
     # ── P2P ────────────────────────────────────────────────────────────
@@ -149,5 +149,5 @@ class BinanceProvider(BaseProvider):
         median = sorted(prices)[len(prices) // 2]
 
         label = symbol.replace("P2P ", "")
-        line = f"Binance P2P {label}: {median:.4f}"
+        line = f"Binance P2P {label}: `{median:.4f}`"
         return {"lines": [line], "rate": median}

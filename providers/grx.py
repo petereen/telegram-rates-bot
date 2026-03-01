@@ -81,7 +81,7 @@ class GRXProvider(BaseProvider):
         usd_rate = coin_data.get("usd")
 
         if rub_rate is not None:
-            lines = [f"GRX {symbol}: {rub_rate:,.2f}"]
+            lines = [f"GRX {symbol}: `{rub_rate:,.2f}`"]
             result: dict[str, Any] = {"lines": lines, "rate": rub_rate}
             if usd_rate is not None:
                 result["usd"] = usd_rate

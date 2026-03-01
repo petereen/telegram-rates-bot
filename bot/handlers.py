@@ -5,10 +5,13 @@ bot.handlers – Telegram command and callback handlers.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -29,6 +32,20 @@ from bot.keyboards import providers_keyboard, pairs_keyboard
 log = logging.getLogger(__name__)
 
 
+# ── Custom emoji mapping (pack: oyunsratesemoji_by_TgEmodziBot) ────────
+# Each value is a tg-emoji placeholder that Telegram renders as the custom
+# emoji when sent with parse_mode=HTML.
+_PROVIDER_EMOJI: dict[str, str] = {
+    "Rapira":     '<tg-emoji emoji-id="6134317058038439469">\U0001f4b5</tg-emoji>',
+    "XE":         '<tg-emoji emoji-id="6133907906568921277">\U0001f4b8</tg-emoji>',
+    "Binance":    '<tg-emoji emoji-id="6134390931475930256">\U0001f4b0</tg-emoji>',
+    "BOC":        '<tg-emoji emoji-id="6134257491137010663">\U0001f1e8\U0001f1f3</tg-emoji>',
+    "CBR":        '<tg-emoji emoji-id="6136465649788001541">\U0001f1f7\U0001f1fa</tg-emoji>',
+    "Profinance": '<tg-emoji emoji-id="6134027577242689559">\U0001f4ca</tg-emoji>',
+    "GRX":        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji>',
+}
+
+
 # ── /start ─────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -41,6 +58,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/add  – валютын хослол нэмэх\n"
         "/list – хадгалсан валютын жагсаалт\n"
         "/rates – ханшийн жагсаалт авах\n"
+        "/oyuns – ханшийн жагсаалт авах\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж",
@@ -54,6 +72,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/add  – валютын хослол нэмэх\n"
         "/list – хадгалсан валютын жагсаалт\n"
         "/rates – ханшийн жагсаалт авах\n"
+        "/oyuns – ханшийн жагсаалт авах\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж",
@@ -122,7 +141,12 @@ async def cmd_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-# ── /rates ─────────────────────────────────────────────────────────────
+# ── /rates  (alias: /oyuns) ─────────────────────────────────────────────
+
+def _escape_html(text: str) -> str:
+    """Escape HTML special chars in text (but not our tags)."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 
 async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
@@ -142,28 +166,54 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for s in subs:
         grouped[s["provider"]].append(s["symbol"])
 
-    output_blocks: list[str] = []
+    # Title with UB (Ulaanbaatar, UTC+8) date/time
+    _UB_TZ = timezone(timedelta(hours=8))
+    now_ub = datetime.now(_UB_TZ)
+    title = (
+        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji> '
+        f'<b>ХАНШИЙН МЭДЭЭЛЭЛ</b>  {now_ub:%Y-%m-%d %H:%M}'
+    )
+
+    output_blocks: list[str] = [title]
     for prov_name in sorted(grouped):
         block_lines: list[str] = []
+
+        # Custom emoji header for the provider
+        emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
+        header = f"{emoji_tag} <b>{_escape_html(prov_name)}</b>" if emoji_tag else f"<b>{_escape_html(prov_name)}</b>"
+        block_lines.append(header)
+
         try:
             provider = get_provider(prov_name)
         except ValueError:
-            block_lines.append(f"{prov_name}: эх сурвалжаас ханш татах боломжгүй")
+            block_lines.append(f"{_escape_html(prov_name)}: эх сурвалжаас ханш татах боломжгүй")
             output_blocks.append("\n".join(block_lines))
             continue
 
         for sym in grouped[prov_name]:
             try:
                 data = provider.get_rate(sym)
-                block_lines.extend(data.get("lines", [f"{prov_name} {sym}: –"]))
+                raw_lines = data.get("lines", [f"{prov_name} {sym}: –"])
+                for rl in raw_lines:
+                    # Lines contain backtick-wrapped amounts like `123.45`
+                    # Convert backtick-mono to HTML <code> for copy-ready display
+                    html_line = re.sub(
+                        r"`([^`]+)`",
+                        lambda m: f"<code>{m.group(1)}</code>",
+                        rl,
+                    )
+                    block_lines.append(html_line)
             except Exception as exc:
                 log.error("Error fetching %s/%s: %s", prov_name, sym, exc)
-                block_lines.append(f"{prov_name} {sym}: алдаа")
+                block_lines.append(f"{_escape_html(prov_name)} {_escape_html(sym)}: алдаа")
 
         output_blocks.append("\n".join(block_lines))
 
     # Join blocks with blank lines between different providers
-    await update.message.reply_text("\n\n".join(output_blocks))
+    await update.message.reply_text(
+        "\n\n".join(output_blocks),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # ── Callback-query router (inline keyboard taps) ──────────────────────
@@ -233,4 +283,5 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("list", cmd_list))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("rates", cmd_rates))
+    app.add_handler(CommandHandler("oyuns", cmd_rates))
     app.add_handler(CallbackQueryHandler(callback_router))

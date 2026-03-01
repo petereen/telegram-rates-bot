@@ -110,7 +110,7 @@ class ProfinanceProvider(BaseProvider):
         buy = data["buy"]
         sell = data["sell"]
         lines = [
-            f"Profinance {symbol} Buy:  {buy}",
-            f"Profinance {symbol} Sell: {sell}",
+            f"Profinance {symbol} Buy:  `{buy}`",
+            f"Profinance {symbol} Sell: `{sell}`",
         ]
         return {"lines": lines, "buy": buy, "sell": sell}

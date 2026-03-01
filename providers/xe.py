@@ -86,7 +86,7 @@ class XEProvider(BaseProvider):
         if rate is None:
             return {"lines": [f"XE {symbol}: parse error"]}
 
-        line = f"XE {symbol}: {rate:.4f}"
+        line = f"XE {symbol}: `{rate:.4f}`"
         return {"lines": [line], "rate": rate}
 
     # ── HTML parsing ───────────────────────────────────────────────────

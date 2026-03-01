@@ -93,7 +93,7 @@ class CBRProvider(BaseProvider):
                 nominal = int(valute.findtext("Nominal", "1"))
                 value_str = valute.findtext("Value", "0").replace(",", ".")
                 value = float(value_str) / nominal
-                line = f"CBR {symbol}: {value:.4f}"
+                line = f"CBR {symbol}: `{value:.4f}`"
                 return {"lines": [line], "rate": value}
 
         return {"lines": [f"CBR {symbol}: not found"]}
