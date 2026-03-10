@@ -61,6 +61,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/list – хадгалсан валютын жагсаалт\n"
         "/rates – ханшийн жагсаалт авах\n"
         "/oyuns – ханшийн жагсаалт авах\n"
+        "/calc – тооцоолсон ханш\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж",
@@ -75,6 +76,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/list – хадгалсан валютын жагсаалт\n"
         "/rates – ханшийн жагсаалт авах\n"
         "/oyuns – ханшийн жагсаалт авах\n"
+        "/calc – тооцоолсон ханш\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж",
@@ -196,25 +198,41 @@ def _build_formula_section() -> list[str]:
         rapira_provider = get_provider("Rapira")
         rapira_data = rapira_provider.get_rate("USDT/RUB")
 
-        rub_lines: list[str] = ["RUB БЭЛЭН:"]
         min_price = binance_data.get("min_price")
-        if min_price is not None:
-            rub_lines.append(f"  Binance P2P USDT/MNT: <code>{min_price:.2f}</code>")
-        else:
-            rub_lines.append("  Binance P2P USDT/MNT: –")
-
         rapira_buy = rapira_data.get("buy") or rapira_data.get("bid")
-        if rapira_buy is not None:
-            rub_lines.append(f"  Rapira USDT/RUB Buy: <code>{float(rapira_buy):.2f}</code>")
-        else:
-            rub_lines.append("  Rapira USDT/RUB Buy: –")
 
-        lines.append("\n".join(rub_lines))
+        if min_price is not None and rapira_buy is not None:
+            rub_belen = float(min_price) / float(rapira_buy)
+            lines.append(f"RUB БЭЛЭН: <code>{rub_belen:.2f}</code>")
+        else:
+            lines.append("RUB БЭЛЭН: алдаа")
     except Exception as exc:
         log.error("Formula RUB БЭЛЭН error: %s", exc)
         lines.append("RUB БЭЛЭН: алдаа")
 
     return lines
+
+
+# ── /calc ───────────────────────────────────────────────────────────────
+
+async def cmd_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+
+    await update.message.reply_text("Тооцоолж байна, түр хүлээнэ үү…")
+
+    from datetime import timezone, timedelta
+    _UB_TZ = timezone(timedelta(hours=8))
+    now_ub = datetime.now(_UB_TZ)
+    title = (
+        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji> '
+        f'<b>ТООЦООЛСОН ХАНШ</b>  {now_ub:%Y-%m-%d %H:%M}'
+    )
+
+    formula_lines = _build_formula_section()
+    text = title + "\n\n" + "\n".join(formula_lines) if formula_lines else title + "\n\nТооцоолох боломжгүй."
+
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -360,4 +378,5 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("rates", cmd_rates))
     app.add_handler(CommandHandler("oyuns", cmd_rates))
+    app.add_handler(CommandHandler("calc", cmd_calc))
     app.add_handler(CallbackQueryHandler(callback_router))
