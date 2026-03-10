@@ -17,7 +17,7 @@ from providers.base import BaseProvider, register_provider
 
 log = logging.getLogger(__name__)
 
-SPOT_URL = "https://api.binance.com/api/v3/ticker/price"
+SPOT_URL = "https://data-api.binance.vision/api/v3/ticker/price"
 
 P2P_URL = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
 
@@ -146,8 +146,10 @@ class BinanceProvider(BaseProvider):
             return {"lines": [f"Binance P2P {asset}/{fiat}: no ads"]}
 
         prices = [float(ad["adv"]["price"]) for ad in ads]
-        median = sorted(prices)[len(prices) // 2]
+        sorted_prices = sorted(prices)
+        median = sorted_prices[len(sorted_prices) // 2]
+        min_price = sorted_prices[0]
 
         label = symbol.replace("P2P ", "")
         line = f"Binance P2P {label}: `{median:.4f}`"
-        return {"lines": [line], "rate": median}
+        return {"lines": [line], "rate": median, "min_price": min_price, "prices": sorted_prices}

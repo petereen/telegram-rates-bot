@@ -27,6 +27,8 @@ from db.supabase_client import (
     clear_subscriptions,
 )
 from providers.base import get_provider, all_providers
+from providers.mongolbank import fetch_mongolbank_rub_rate
+from providers.tdb import fetch_tdb_usd_noncash_sell
 from bot.keyboards import providers_keyboard, pairs_keyboard
 
 log = logging.getLogger(__name__)
@@ -148,6 +150,73 @@ def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _build_formula_section() -> list[str]:
+    """Calculate and format the three formula-based rates.
+
+    ДЕЛЬКРАДО:  MongolBank RUB rate + 0.50%
+    ТРИКУЭТРА:  (TDB Bank non-cash USD sell / CBR USD/RUB) + 1%
+    RUB БЭЛЭН:  Cheapest Binance P2P USDT/RUB  /  Rapira USDT/RUB buy
+    """
+    lines: list[str] = []
+
+    # ── ДЕЛЬКРАДО ──────────────────────────────────────────────────────
+    try:
+        mb_data = fetch_mongolbank_rub_rate()
+        if "error" not in mb_data:
+            mb_rub = mb_data["rate"]
+            delcrado = mb_rub * 1.005
+            lines.append(f"ДЕЛЬКРАДО: <code>{delcrado:.2f}</code>")
+        else:
+            lines.append("ДЕЛЬКРАДО: алдаа")
+    except Exception as exc:
+        log.error("Formula ДЕЛЬКРАДО error: %s", exc)
+        lines.append("ДЕЛЬКРАДО: алдаа")
+
+    # ── ТРИКУЭТРА ─────────────────────────────────────────────────────
+    try:
+        tdb_data = fetch_tdb_usd_noncash_sell()
+        cbr_provider = get_provider("CBR")
+        cbr_data = cbr_provider.get_rate("USD/RUB")
+
+        if "error" not in tdb_data and cbr_data.get("rate"):
+            tdb_usd = tdb_data["rate"]
+            cbr_usd_rub = cbr_data["rate"]
+            triquetra = (tdb_usd / cbr_usd_rub) * 1.01
+            lines.append(f"ТРИКУЭТРА: <code>{triquetra:.2f}</code>")
+        else:
+            lines.append("ТРИКУЭТРА: алдаа")
+    except Exception as exc:
+        log.error("Formula ТРИКУЭТРА error: %s", exc)
+        lines.append("ТРИКУЭТРА: алдаа")
+
+    # ── RUB БЭЛЭН ─────────────────────────────────────────────────────
+    try:
+        binance_provider = get_provider("Binance")
+        binance_data = binance_provider.get_rate("P2P USDT/RUB")
+        rapira_provider = get_provider("Rapira")
+        rapira_data = rapira_provider.get_rate("USDT/RUB")
+
+        rub_lines: list[str] = ["RUB БЭЛЭН:"]
+        min_price = binance_data.get("min_price")
+        if min_price is not None:
+            rub_lines.append(f"  Binance P2P USDT/RUB: <code>{min_price:.2f}</code>")
+        else:
+            rub_lines.append("  Binance P2P USDT/RUB: –")
+
+        rapira_buy = rapira_data.get("buy") or rapira_data.get("bid")
+        if rapira_buy is not None:
+            rub_lines.append(f"  Rapira USDT/RUB Buy: <code>{float(rapira_buy):.2f}</code>")
+        else:
+            rub_lines.append("  Rapira USDT/RUB Buy: –")
+
+        lines.append("\n".join(rub_lines))
+    except Exception as exc:
+        log.error("Formula RUB БЭЛЭН error: %s", exc)
+        lines.append("RUB БЭЛЭН: алдаа")
+
+    return lines
+
+
 async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
@@ -210,8 +279,15 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         output_blocks.append("\n".join(block_lines))
 
     # Join blocks with blank lines between different providers
+    text = "\n\n".join(output_blocks)
+
+    # ── Formula-based rates section ────────────────────────────────────
+    formula_lines = _build_formula_section()
+    if formula_lines:
+        text += "\n\n———————————————\n" + "\n".join(formula_lines)
+
     await update.message.reply_text(
-        "\n\n".join(output_blocks),
+        text,
         parse_mode=ParseMode.HTML,
     )
 
