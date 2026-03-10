@@ -60,6 +60,7 @@ _P2P_PAIRS: dict[str, tuple[str, str]] = {
     "P2P USDT/AED": ("USDT", "AED"),
     "P2P BTC/CNY":  ("BTC",  "CNY"),
     "P2P ETH/RUB":  ("ETH",  "RUB"),
+    "P2P USDT/MNT": ("USDT", "MNT"),
 }
 
 
@@ -79,6 +80,7 @@ class BinanceProvider(BaseProvider):
         "P2P USDT/AED": "P2P USDT → AED (median)",
         "P2P BTC/CNY":  "P2P BTC → CNY (median)",
         "P2P ETH/RUB":  "P2P ETH → RUB (median)",
+        "P2P USDT/MNT": "P2P USDT → MNT (median)",
     }
 
     def fetch(self, symbol: str) -> dict[str, Any]:

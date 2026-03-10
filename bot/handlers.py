@@ -192,16 +192,16 @@ def _build_formula_section() -> list[str]:
     # ── RUB БЭЛЭН ─────────────────────────────────────────────────────
     try:
         binance_provider = get_provider("Binance")
-        binance_data = binance_provider.get_rate("P2P USDT/RUB")
+        binance_data = binance_provider.get_rate("P2P USDT/MNT")
         rapira_provider = get_provider("Rapira")
         rapira_data = rapira_provider.get_rate("USDT/RUB")
 
         rub_lines: list[str] = ["RUB БЭЛЭН:"]
         min_price = binance_data.get("min_price")
         if min_price is not None:
-            rub_lines.append(f"  Binance P2P USDT/RUB: <code>{min_price:.2f}</code>")
+            rub_lines.append(f"  Binance P2P USDT/MNT: <code>{min_price:.2f}</code>")
         else:
-            rub_lines.append("  Binance P2P USDT/RUB: –")
+            rub_lines.append("  Binance P2P USDT/MNT: –")
 
         rapira_buy = rapira_data.get("buy") or rapira_data.get("bid")
         if rapira_buy is not None:
