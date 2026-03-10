@@ -244,7 +244,7 @@ async def cmd_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
     formula_lines = _build_formula_section()
-    text = title + "\n\n" + "\n".join(formula_lines) if formula_lines else title + "\n\nТооцоолох боломжгүй."
+    text = title + "\n\n" + "\n\n".join(formula_lines) if formula_lines else title + "\n\nТооцоолох боломжгүй."
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -316,7 +316,7 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     # ── Formula-based rates section ────────────────────────────────────
     formula_lines = _build_formula_section()
     if formula_lines:
-        text += "\n\n———————————————\n" + "\n".join(formula_lines)
+        text += "\n\n———————————————\n" + "\n\n".join(formula_lines)
 
     await update.message.reply_text(
         text,
