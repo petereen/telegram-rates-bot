@@ -1,8 +1,8 @@
 """
 providers.mongolbank – Mongol Bank (central bank) exchange rate fetcher.
 
-Uses the community API at:
-  https://mongolian-bank-exchange-rate-6620c122ff22.herokuapp.com/rates/bank/MongolBank
+Uses the monxansh.appspot.com API which pulls official MongolBank rates:
+  https://monxansh.appspot.com/xansh.json?currency=RUB
 
 Returns the official MongolBank RUB/MNT rate.
 """
@@ -18,10 +18,7 @@ from db.supabase_client import get_cached_rate, set_cached_rate
 
 log = logging.getLogger(__name__)
 
-_API_URL = (
-    "https://mongolian-bank-exchange-rate-6620c122ff22.herokuapp.com"
-    "/rates/bank/MongolBank"
-)
+_API_URL = "https://monxansh.appspot.com/xansh.json?currency=RUB"
 
 _PROVIDER_NAME = "MongolBank"
 
@@ -49,18 +46,16 @@ def fetch_mongolbank_rub_rate() -> dict[str, Any]:
     if not data or not isinstance(data, list):
         return {"error": "unexpected response"}
 
-    # Take the most recent entry (first in the list)
-    latest = data[0]
-    rates = latest.get("rates", {})
-    rub = rates.get("rub", {})
+    # Find the RUB entry
+    for entry in data:
+        if entry.get("code") == "RUB":
+            rate = entry.get("rate_float") or entry.get("rate")
+            if rate is not None:
+                result = {
+                    "rate": float(rate),
+                    "date": entry.get("rate_date", ""),
+                }
+                set_cached_rate(_PROVIDER_NAME, "RUB", result)
+                return result
 
-    # MongolBank is the central bank – buy == sell (reference rate)
-    rate = rub.get("cash", {}).get("sell")
-    if rate is None:
-        rate = rub.get("noncash", {}).get("sell")
-    if rate is None:
-        return {"error": "RUB rate not found"}
-
-    result = {"rate": float(rate), "date": latest.get("date", "")}
-    set_cached_rate(_PROVIDER_NAME, "RUB", result)
-    return result
+    return {"error": "RUB rate not found"}
