@@ -157,7 +157,7 @@ def _build_formula_section() -> list[str]:
 
     ДЕЛЬКРАДО:  MongolBank RUB rate + 0.50%
     ТРИКУЭТРА:  (TDB Bank non-cash USD sell / CBR USD/RUB) + 1%
-    RUB БЭЛЭН:  Cheapest Binance P2P USDT/RUB  /  Rapira USDT/RUB buy
+    RUB БЭЛЭН:  Binance P2P USDT/MNT (min) / Rapira USDT/RUB buy
     """
     lines: list[str] = []
 
@@ -167,12 +167,16 @@ def _build_formula_section() -> list[str]:
         if "error" not in mb_data:
             mb_rub = mb_data["rate"]
             delcrado = mb_rub * 1.005
-            lines.append(f"ДЕЛЬКРАДО: <code>{delcrado:.2f}</code>")
+            lines.append(
+                f"<b>ДЕЛЬКРАДО:</b>\n"
+                f"  MongolBank RUB: {mb_rub:.2f} + 0.50%\n"
+                f"  ▶ <code>{delcrado:.2f}</code>"
+            )
         else:
-            lines.append("ДЕЛЬКРАДО: алдаа")
+            lines.append("<b>ДЕЛЬКРАДО:</b> алдаа")
     except Exception as exc:
         log.error("Formula ДЕЛЬКРАДО error: %s", exc)
-        lines.append("ДЕЛЬКРАДО: алдаа")
+        lines.append("<b>ДЕЛЬКРАДО:</b> алдаа")
 
     # ── ТРИКУЭТРА ─────────────────────────────────────────────────────
     try:
@@ -184,12 +188,16 @@ def _build_formula_section() -> list[str]:
             tdb_usd = tdb_data["rate"]
             cbr_usd_rub = cbr_data["rate"]
             triquetra = (tdb_usd / cbr_usd_rub) * 1.01
-            lines.append(f"ТРИКУЭТРА: <code>{triquetra:.2f}</code>")
+            lines.append(
+                f"<b>ТРИКУЭТРА:</b>\n"
+                f"  TDB USD sell: {tdb_usd:.2f} / CBR USD/RUB: {cbr_usd_rub:.4f} + 1%\n"
+                f"  ▶ <code>{triquetra:.2f}</code>"
+            )
         else:
-            lines.append("ТРИКУЭТРА: алдаа")
+            lines.append("<b>ТРИКУЭТРА:</b> алдаа")
     except Exception as exc:
         log.error("Formula ТРИКУЭТРА error: %s", exc)
-        lines.append("ТРИКУЭТРА: алдаа")
+        lines.append("<b>ТРИКУЭТРА:</b> алдаа")
 
     # ── RUB БЭЛЭН ─────────────────────────────────────────────────────
     try:
@@ -202,13 +210,19 @@ def _build_formula_section() -> list[str]:
         rapira_buy = rapira_data.get("buy") or rapira_data.get("bid")
 
         if min_price is not None and rapira_buy is not None:
-            rub_belen = float(min_price) / float(rapira_buy)
-            lines.append(f"RUB БЭЛЭН: <code>{rub_belen:.2f}</code>")
+            min_price_f = float(min_price)
+            rapira_buy_f = float(rapira_buy)
+            rub_belen = min_price_f / rapira_buy_f
+            lines.append(
+                f"<b>RUB БЭЛЭН:</b>\n"
+                f"  Binance USDT/MNT: {min_price_f:.2f} / Rapira Buy: {rapira_buy_f:.2f}\n"
+                f"  ▶ <code>{rub_belen:.2f}</code>"
+            )
         else:
-            lines.append("RUB БЭЛЭН: алдаа")
+            lines.append("<b>RUB БЭЛЭН:</b> алдаа")
     except Exception as exc:
         log.error("Formula RUB БЭЛЭН error: %s", exc)
-        lines.append("RUB БЭЛЭН: алдаа")
+        lines.append("<b>RUB БЭЛЭН:</b> алдаа")
 
     return lines
 
