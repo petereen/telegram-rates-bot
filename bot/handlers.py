@@ -16,7 +16,9 @@ from telegram.ext import (
     ContextTypes,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
     Application,
+    filters,
 )
 
 from db.supabase_client import (
@@ -262,66 +264,260 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text("Ханш татаж байна, түр хүлээнэ үү…")
 
-    # Group subscriptions by provider to output with blank-line separation
+    # Group subscriptions by provider
     grouped: dict[str, list[str]] = defaultdict(list)
     for s in subs:
         grouped[s["provider"]].append(s["symbol"])
 
-    # Title with UB (Ulaanbaatar, UTC+8) date/time
-    _UB_TZ = timezone(timedelta(hours=8))
-    now_ub = datetime.now(_UB_TZ)
-    title = (
-        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji> '
-        f'<b>ХАНШИЙН МЭДЭЭЛЭЛ</b>  {now_ub:%Y-%m-%d %H:%M}'
-    )
-
-    output_blocks: list[str] = [title]
+    # Send each rate as a separate message
     for prov_name in sorted(grouped):
-        block_lines: list[str] = []
-
-        # Custom emoji header for the provider
         emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
-        header = f"{emoji_tag} <b>{_escape_html(prov_name)}</b>" if emoji_tag else f"<b>{_escape_html(prov_name)}</b>"
-        block_lines.append(header)
+        header = (
+            f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
+            if emoji_tag
+            else f"<b>{_escape_html(prov_name)}</b>"
+        )
 
         try:
             provider = get_provider(prov_name)
         except ValueError:
-            block_lines.append(f"{_escape_html(prov_name)}: эх сурвалжаас ханш татах боломжгүй")
-            output_blocks.append("\n".join(block_lines))
+            await update.message.reply_text(
+                f"{_escape_html(prov_name)}: эх сурвалжаас ханш татах боломжгүй",
+                parse_mode=ParseMode.HTML,
+            )
             continue
 
         for sym in grouped[prov_name]:
             try:
                 data = provider.get_rate(sym)
                 raw_lines = data.get("lines", [f"{prov_name} {sym}: –"])
+                html_lines: list[str] = []
                 for rl in raw_lines:
-                    # Lines contain backtick-wrapped amounts like `123.45`
-                    # Convert backtick-mono to HTML <code> for copy-ready display
                     html_line = re.sub(
                         r"`([^`]+)`",
                         lambda m: f"<code>{m.group(1)}</code>",
                         rl,
                     )
-                    block_lines.append(html_line)
+                    html_lines.append(html_line)
+                text = header + "\n" + "\n".join(html_lines)
+                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
             except Exception as exc:
                 log.error("Error fetching %s/%s: %s", prov_name, sym, exc)
-                block_lines.append(f"{_escape_html(prov_name)} {_escape_html(sym)}: алдаа")
+                await update.message.reply_text(
+                    f"{_escape_html(prov_name)} {_escape_html(sym)}: алдаа",
+                    parse_mode=ParseMode.HTML,
+                )
 
-        output_blocks.append("\n".join(block_lines))
-
-    # Join blocks with blank lines between different providers
-    text = "\n\n".join(output_blocks)
-
-    # ── Formula-based rates section ────────────────────────────────────
+    # Formula-based rates – each formula as its own message
     formula_lines = _build_formula_section()
-    if formula_lines:
-        text += "\n\n———————————————\n" + "\n\n".join(formula_lines)
+    for fl in formula_lines:
+        await update.message.reply_text(fl, parse_mode=ParseMode.HTML)
 
-    await update.message.reply_text(
-        text,
-        parse_mode=ParseMode.HTML,
+
+# ── Calculator helpers ─────────────────────────────────────────────────
+
+_OPERATORS = {"+", "-", "*", "/"}
+
+
+def _extract_code_values(message: Any) -> list[float]:
+    """Extract numeric values from ``code`` entities in a Telegram message."""
+    values: list[float] = []
+    if not message or not message.text or not message.entities:
+        return values
+    for entity in message.entities:
+        if entity.type == "code":
+            code_text = message.text[entity.offset : entity.offset + entity.length]
+            try:
+                values.append(float(code_text.replace(",", "")))
+            except ValueError:
+                pass
+    return values
+
+
+def _tokenize_input(text: str) -> list:
+    """Parse user text into a list of floats, operator strings, and ``=``."""
+    tokens: list = []
+    for match in re.finditer(r"(\d+(?:[.,]\d+)?|[+\-*/=])", text):
+        tok = match.group(1)
+        if tok in "+-*/=":
+            tokens.append(tok)
+        else:
+            tokens.append(float(tok.replace(",", ".")))
+    return tokens
+
+
+def _format_number(val: float) -> str:
+    """Format a float for display – drop unnecessary trailing zeros."""
+    if val == int(val) and abs(val) < 1e15:
+        return str(int(val))
+    return f"{val:.4f}".rstrip("0").rstrip(".")
+
+
+def _format_expression(tokens: list) -> str:
+    """Render a token list as a readable math expression."""
+    parts: list[str] = []
+    for t in tokens:
+        if isinstance(t, float):
+            parts.append(_format_number(t))
+        elif t == "*":
+            parts.append("×")
+        elif t == "/":
+            parts.append("÷")
+        else:
+            parts.append(str(t))
+    return " ".join(parts)
+
+
+def _evaluate_tokens(tokens: list) -> float:
+    """Evaluate ``[num, op, num, …]`` with standard order of operations."""
+    work = list(tokens)
+    # Pass 1: * and /
+    i = 1
+    while i < len(work):
+        if work[i] in ("*", "/"):
+            left, right = work[i - 1], work[i + 1]
+            if work[i] == "*":
+                val = left * right
+            else:
+                if right == 0:
+                    raise ZeroDivisionError
+                val = left / right
+            work[i - 1 : i + 2] = [val]
+        else:
+            i += 2
+    # Pass 2: + and -
+    while len(work) > 1:
+        left, op, right = work[0], work[1], work[2]
+        val = left + right if op == "+" else left - right
+        work[0:3] = [val]
+    return work[0]
+
+
+# ── Calculator message handler (state machine) ────────────────────────
+
+async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process text messages for the reply-based calculator."""
+    if update.message is None or not update.message.text:
+        return
+
+    text = update.message.text.strip()
+    if not text:
+        return
+
+    user_data = ctx.user_data
+    tokens: list = user_data.get("calc_tokens", [])
+    active: bool = user_data.get("calc_active", False)
+    replied = update.message.reply_to_message
+
+    is_rate_reply = (
+        replied is not None
+        and replied.from_user is not None
+        and replied.from_user.id == ctx.bot.id
     )
+
+    # Not in calc mode and not replying to a bot message → ignore
+    if not active and not is_rate_reply:
+        return
+
+    # Cancel keywords
+    if text.lower() in ("c", "cancel", "х", "цуцлах"):
+        if active:
+            user_data["calc_tokens"] = []
+            user_data["calc_active"] = False
+            await update.message.reply_text("❌ Тооцоолол цуцлагдлаа.")
+        return
+
+    input_tokens = _tokenize_input(text)
+
+    # ── Reply to a rate message: prepend the rate value when the user
+    #    sent only an operator (no explicit number). ──────────────────
+    if is_rate_reply and input_tokens:
+        code_values = _extract_code_values(replied)
+        has_number = any(isinstance(t, float) for t in input_tokens)
+
+        if not has_number and code_values:
+            if len(code_values) == 1:
+                input_tokens.insert(0, code_values[0])
+            else:
+                vals = ", ".join(_format_number(v) for v in code_values)
+                await update.message.reply_text(
+                    f"Олон утга байна: {vals}\n"
+                    f"Аль утгыг ашиглахаа тоогоор бичнэ үү (жишээ: 95.50 *)",
+                )
+                user_data["calc_active"] = True
+                user_data["calc_tokens"] = tokens
+                return
+
+    if not input_tokens:
+        if active:
+            await update.message.reply_text(
+                "Зөв тоо, оператор (+, -, *, /) эсвэл = оруулна уу."
+            )
+        return
+
+    # ── Process each token ──────────────────────────────────────────
+    for tok in input_tokens:
+        if tok == "=":
+            if not tokens or not isinstance(tokens[-1], float):
+                await update.message.reply_text(
+                    "Илэрхийлэл дутуу байна. Тоо оруулна уу."
+                )
+                return
+            try:
+                result = _evaluate_tokens(tokens)
+            except ZeroDivisionError:
+                await update.message.reply_text("❌ Тэгд хуваах боломжгүй.")
+                user_data["calc_tokens"] = []
+                user_data["calc_active"] = False
+                return
+            except Exception as exc:
+                log.error("Calc error: %s", exc)
+                await update.message.reply_text("❌ Тооцоолоход алдаа гарлаа.")
+                user_data["calc_tokens"] = []
+                user_data["calc_active"] = False
+                return
+
+            formula = _format_expression(tokens)
+            result_str = _format_number(result)
+            await update.message.reply_text(
+                f"📐 <b>Тооцоолол</b>\n\n"
+                f"Томьёо: {formula}\n"
+                f"Хариу: <code>{result_str}</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            user_data["calc_tokens"] = []
+            user_data["calc_active"] = False
+            return
+
+        elif isinstance(tok, float):
+            if tokens and isinstance(tokens[-1], float):
+                await update.message.reply_text(
+                    "Хоёр тооны хооронд оператор (+, -, *, /) оруулна уу."
+                )
+                return
+            tokens.append(tok)
+
+        elif tok in _OPERATORS:
+            if not tokens or not isinstance(tokens[-1], float):
+                await update.message.reply_text("Операторын өмнө тоо оруулна уу.")
+                return
+            tokens.append(tok)
+
+    # ── Save state & acknowledge ────────────────────────────────────
+    user_data["calc_tokens"] = tokens
+    user_data["calc_active"] = True
+
+    formula = _format_expression(tokens)
+    if tokens and isinstance(tokens[-1], float):
+        await update.message.reply_text(
+            f"✅ {formula}\n"
+            f"Оператор (+, -, *, /) эсвэл = оруулна уу.",
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ {formula} ...\n"
+            f"Дараагийн ханш/тоо оруулна уу эсвэл = дарж тооцоолно.",
+        )
 
 
 # ── Callback-query router (inline keyboard taps) ──────────────────────
@@ -394,3 +590,4 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("oyuns", cmd_rates))
     app.add_handler(CommandHandler("calc", cmd_calc))
     app.add_handler(CallbackQueryHandler(callback_router))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
