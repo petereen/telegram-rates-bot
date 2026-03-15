@@ -13,5 +13,3 @@ SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
 
 CACHE_TTL: int = int(os.getenv("CACHE_TTL", "300"))
-
-ADMIN_ID: int = int(os.environ.get("ADMIN_ID", "0"))

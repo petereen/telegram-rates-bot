@@ -112,32 +112,6 @@ def clear_subscriptions(telegram_id: int) -> int:
     return len(result.data) if result.data else 0
 
 
-# ── All users (paginated) ─────────────────────────────────────────────
-
-_PAGE_SIZE = 1000
-
-
-def get_all_user_ids() -> list[int]:
-    """Return every telegram_id from the users table, paginating past the 1000-row limit."""
-    sb = _get_client()
-    ids: list[int] = []
-    offset = 0
-    while True:
-        result = (
-            sb.table("users")
-            .select("telegram_id")
-            .range(offset, offset + _PAGE_SIZE - 1)
-            .execute()
-        )
-        if not result.data:
-            break
-        ids.extend(row["telegram_id"] for row in result.data)
-        if len(result.data) < _PAGE_SIZE:
-            break
-        offset += _PAGE_SIZE
-    return ids
-
-
 # ── Rate Cache ─────────────────────────────────────────────────────────
 
 # In-memory cache: {(provider, symbol): (fetched_at, rate_data)}
