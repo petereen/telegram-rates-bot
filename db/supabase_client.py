@@ -114,8 +114,27 @@ def clear_subscriptions(telegram_id: int) -> int:
 
 # ── Rate Cache ─────────────────────────────────────────────────────────
 
+# In-memory cache: {(provider, symbol): (fetched_at, rate_data)}
+_mem_cache: dict[tuple[str, str], tuple[datetime, dict[str, Any]]] = {}
+
+
 def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
-    """Return cached rate_data dict if fresh, else None."""
+    """Return cached rate_data dict if fresh, else None.
+
+    Checks an in-memory dict first to avoid Supabase round-trips,
+    then falls back to the remote table.
+    """
+    now = datetime.now(timezone.utc)
+    key = (provider, symbol)
+    ttl = timedelta(seconds=CACHE_TTL)
+
+    # 1. In-memory check (fast path)
+    if key in _mem_cache:
+        ts, data = _mem_cache[key]
+        if now - ts <= ttl:
+            return data
+
+    # 2. Supabase fallback
     sb = _get_client()
     row = (
         sb.table("cached_rates")
@@ -128,23 +147,27 @@ def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
         return None
     fetched_at_str: str = row.data[0]["fetched_at"]
     fetched_at = datetime.fromisoformat(fetched_at_str.replace("Z", "+00:00"))
-    if datetime.now(timezone.utc) - fetched_at > timedelta(seconds=CACHE_TTL):
+    if now - fetched_at > ttl:
         return None
     data = row.data[0]["rate_data"]
     if isinstance(data, str):
         data = json.loads(data)
+    # Warm in-memory cache from Supabase hit
+    _mem_cache[key] = (fetched_at, data)
     return data  # type: ignore[return-value]
 
 
 def set_cached_rate(provider: str, symbol: str, rate_data: dict[str, Any]) -> None:
-    """Upsert a rate into the cache."""
+    """Upsert a rate into the cache (in-memory + Supabase)."""
+    now = datetime.now(timezone.utc)
+    _mem_cache[(provider, symbol)] = (now, rate_data)
     sb = _get_client()
     sb.table("cached_rates").upsert(
         {
             "provider": provider,
             "symbol": symbol,
             "rate_data": json.dumps(rate_data),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": now.isoformat(),
         },
         on_conflict="provider,symbol",
     ).execute()

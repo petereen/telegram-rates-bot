@@ -4,6 +4,7 @@ bot.handlers – Telegram command and callback handlers.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections import defaultdict
@@ -154,18 +155,33 @@ def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _build_formula_section() -> list[str]:
+async def _build_formula_section() -> list[str]:
     """Calculate and format the three formula-based rates.
+
+    All upstream fetches run in parallel via asyncio.to_thread.
 
     ДЕЛЬКРАДО:  MongolBank RUB rate + 0.50%
     ТРИКУЭТРА:  (TDB Bank non-cash USD sell / CBR USD/RUB) + 1%
     RUB БЭЛЭН:  Binance P2P USDT/MNT (min) / Rapira USDT/RUB buy
     """
+    # Fire all blocking fetches in parallel
+    mb_fut = asyncio.to_thread(fetch_mongolbank_rub_rate)
+    tdb_fut = asyncio.to_thread(fetch_tdb_usd_noncash_sell)
+    cbr_fut = asyncio.to_thread(lambda: get_provider("CBR").get_rate("USD/RUB"))
+    binance_fut = asyncio.to_thread(lambda: get_provider("Binance").get_rate("P2P USDT/MNT"))
+    rapira_fut = asyncio.to_thread(lambda: get_provider("Rapira").get_rate("USDT/RUB"))
+
+    mb_data, tdb_data, cbr_data, binance_data, rapira_data = await asyncio.gather(
+        mb_fut, tdb_fut, cbr_fut, binance_fut, rapira_fut,
+        return_exceptions=True,
+    )
+
     lines: list[str] = []
 
     # ── ДЕЛЬКРАДО ──────────────────────────────────────────────────────
     try:
-        mb_data = fetch_mongolbank_rub_rate()
+        if isinstance(mb_data, Exception):
+            raise mb_data
         if "error" not in mb_data:
             mb_rub = mb_data["rate"]
             delcrado = mb_rub * 1.005
@@ -182,10 +198,10 @@ def _build_formula_section() -> list[str]:
 
     # ── ТРИКУЭТРА ─────────────────────────────────────────────────────
     try:
-        tdb_data = fetch_tdb_usd_noncash_sell()
-        cbr_provider = get_provider("CBR")
-        cbr_data = cbr_provider.get_rate("USD/RUB")
-
+        if isinstance(tdb_data, Exception):
+            raise tdb_data
+        if isinstance(cbr_data, Exception):
+            raise cbr_data
         if "error" not in tdb_data and cbr_data.get("rate"):
             tdb_usd = tdb_data["rate"]
             cbr_usd_rub = cbr_data["rate"]
@@ -203,10 +219,10 @@ def _build_formula_section() -> list[str]:
 
     # ── RUB БЭЛЭН ─────────────────────────────────────────────────────
     try:
-        binance_provider = get_provider("Binance")
-        binance_data = binance_provider.get_rate("P2P USDT/MNT")
-        rapira_provider = get_provider("Rapira")
-        rapira_data = rapira_provider.get_rate("USDT/RUB")
+        if isinstance(binance_data, Exception):
+            raise binance_data
+        if isinstance(rapira_data, Exception):
+            raise rapira_data
 
         min_price = binance_data.get("min_price")
         rapira_buy = rapira_data.get("buy") or rapira_data.get("bid")
@@ -245,7 +261,7 @@ async def cmd_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         f'<b>ТООЦООЛСОН ХАНШ</b>  {now_ub:%Y-%m-%d %H:%M}'
     )
 
-    formula_lines = _build_formula_section()
+    formula_lines = await _build_formula_section()
     text = title + "\n\n" + "\n\n".join(formula_lines) if formula_lines else title + "\n\nТооцоолох боломжгүй."
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
@@ -269,8 +285,41 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for s in subs:
         grouped[s["provider"]].append(s["symbol"])
 
-    # Send each rate as a separate message
+    # ── Collect all (provider_name, symbol, provider) tasks ────────────
+    fetch_jobs: list[tuple[str, str]] = []  # (prov_name, sym)
+    providers_map: dict[str, Any] = {}
     for prov_name in sorted(grouped):
+        try:
+            providers_map[prov_name] = get_provider(prov_name)
+        except ValueError:
+            providers_map[prov_name] = None
+        for sym in grouped[prov_name]:
+            fetch_jobs.append((prov_name, sym))
+
+    # ── Fetch all rates + formulas in parallel ────────────────────────
+
+    async def _noop() -> None:
+        return None
+
+    rate_tasks = []
+    for prov_name, sym in fetch_jobs:
+        prov = providers_map.get(prov_name)
+        if prov is None:
+            rate_tasks.append(_noop())
+        else:
+            rate_tasks.append(asyncio.to_thread(prov.get_rate, sym))
+
+    formula_task = _build_formula_section()
+
+    all_results = await asyncio.gather(
+        *rate_tasks, formula_task, return_exceptions=True
+    )
+
+    rate_results = all_results[:-1]
+    formula_lines = all_results[-1]
+
+    # ── Send each rate as a separate message ──────────────────────────
+    for (prov_name, sym), data in zip(fetch_jobs, rate_results):
         emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
         header = (
             f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
@@ -278,40 +327,37 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             else f"<b>{_escape_html(prov_name)}</b>"
         )
 
-        try:
-            provider = get_provider(prov_name)
-        except ValueError:
+        if providers_map.get(prov_name) is None:
             await update.message.reply_text(
                 f"{_escape_html(prov_name)}: эх сурвалжаас ханш татах боломжгүй",
                 parse_mode=ParseMode.HTML,
             )
             continue
 
-        for sym in grouped[prov_name]:
-            try:
-                data = provider.get_rate(sym)
-                raw_lines = data.get("lines", [f"{prov_name} {sym}: –"])
-                html_lines: list[str] = []
-                for rl in raw_lines:
-                    html_line = re.sub(
-                        r"`([^`]+)`",
-                        lambda m: f"<code>{m.group(1)}</code>",
-                        rl,
-                    )
-                    html_lines.append(html_line)
-                text = header + "\n" + "\n".join(html_lines)
-                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-            except Exception as exc:
-                log.error("Error fetching %s/%s: %s", prov_name, sym, exc)
-                await update.message.reply_text(
-                    f"{_escape_html(prov_name)} {_escape_html(sym)}: алдаа",
-                    parse_mode=ParseMode.HTML,
-                )
+        if isinstance(data, Exception):
+            log.error("Error fetching %s/%s: %s", prov_name, sym, data)
+            await update.message.reply_text(
+                f"{_escape_html(prov_name)} {_escape_html(sym)}: алдаа",
+                parse_mode=ParseMode.HTML,
+            )
+            continue
 
-    # Formula-based rates – each formula as its own message
-    formula_lines = _build_formula_section()
-    for fl in formula_lines:
-        await update.message.reply_text(fl, parse_mode=ParseMode.HTML)
+        raw_lines = data.get("lines", [f"{prov_name} {sym}: –"])
+        html_lines: list[str] = []
+        for rl in raw_lines:
+            html_line = re.sub(
+                r"`([^`]+)`",
+                lambda m: f"<code>{m.group(1)}</code>",
+                rl,
+            )
+            html_lines.append(html_line)
+        text = header + "\n" + "\n".join(html_lines)
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    # ── Formula-based rates – each formula as its own message ─────────
+    if isinstance(formula_lines, list):
+        for fl in formula_lines:
+            await update.message.reply_text(fl, parse_mode=ParseMode.HTML)
 
 
 # ── Calculator helpers ─────────────────────────────────────────────────
@@ -335,11 +381,20 @@ def _extract_code_values(message: Any) -> list[float]:
 
 
 def _tokenize_input(text: str) -> list:
-    """Parse user text into a list of floats, operator strings, and ``=``."""
+    """Parse user text into a list of floats, operator strings, and ``=``.
+
+    Percentage syntax: ``+0.5%`` becomes ``* 1.005``, ``-1%`` becomes ``* 0.99``.
+    """
     tokens: list = []
-    for match in re.finditer(r"(\d+(?:[.,]\d+)?|[+\-*/=])", text):
+    pattern = r"([+-]\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?|[+\-*/=])"
+    for match in re.finditer(pattern, text):
         tok = match.group(1)
-        if tok in "+-*/=":
+        if tok.endswith("%"):
+            pct_val = float(tok[:-1].replace(",", "."))
+            multiplier = 1 + (pct_val / 100)
+            tokens.append("*")
+            tokens.append(multiplier)
+        elif tok in "+-*/=":
             tokens.append(tok)
         else:
             tokens.append(float(tok.replace(",", ".")))

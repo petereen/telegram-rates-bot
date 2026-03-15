@@ -1,11 +1,10 @@
 """
 providers.mongolbank – Mongol Bank (central bank) exchange rate fetcher.
 
-Uses the official MongolBank API endpoint:
-  POST https://www.mongolbank.mn/mn/currency-rates/data
-  Body: {"startDate": "YYYY-MM-DD", "endDate": "YYYY-MM-DD"}
+Uses the monxansh.appspot.com proxy for the MongolBank official rates:
+  GET https://monxansh.appspot.com/xansh.json?currency=RUB
 
-Returns the official MongolBank RUB/MNT rate for today.
+Returns the official MongolBank RUB/MNT rate.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from db.supabase_client import get_cached_rate, set_cached_rate
 
 log = logging.getLogger(__name__)
 
-_API_URL = "https://www.mongolbank.mn/mn/currency-rates/data"
+_API_URL = "https://monxansh.appspot.com/xansh.json"
 
 _PROVIDER_NAME = "MongolBank"
 
@@ -40,13 +39,11 @@ def fetch_mongolbank_rub_rate() -> dict[str, Any]:
         return cached
 
     log.info("Fetching   %s/RUB", _PROVIDER_NAME)
-    today = datetime.now(_UB_TZ).strftime("%Y-%m-%d")
     try:
-        resp = requests.post(
+        resp = requests.get(
             _API_URL,
-            json={"startDate": today, "endDate": today},
+            params={"currency": "RUB"},
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         body = resp.json()
@@ -54,16 +51,15 @@ def fetch_mongolbank_rub_rate() -> dict[str, Any]:
         log.error("MongolBank fetch error: %s", exc)
         return {"error": "fetch error"}
 
-    if not body.get("success") or not body.get("data"):
+    if not body or not isinstance(body, list):
         return {"error": "unexpected response"}
 
-    row = body["data"][0]
-    rub_str = row.get("RUB")
-    if rub_str is None:
-        return {"error": "RUB rate not found"}
+    for row in body:
+        if row.get("code") == "RUB":
+            rate = float(row["rate_float"])
+            date = row.get("rate_date", datetime.now(_UB_TZ).strftime("%Y-%m-%d"))
+            result = {"rate": rate, "date": date}
+            set_cached_rate(_PROVIDER_NAME, "RUB", result)
+            return result
 
-    # Value comes as "45.22" or "3,565.99" (with commas)
-    rate = float(rub_str.replace(",", ""))
-    result = {"rate": rate, "date": row.get("RATE_DATE", today)}
-    set_cached_rate(_PROVIDER_NAME, "RUB", result)
-    return result
+    return {"error": "RUB rate not found"}
