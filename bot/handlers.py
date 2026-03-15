@@ -343,16 +343,14 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             continue
 
         raw_lines = data.get("lines", [f"{prov_name} {sym}: –"])
-        html_lines: list[str] = []
         for rl in raw_lines:
             html_line = re.sub(
                 r"`([^`]+)`",
                 lambda m: f"<code>{m.group(1)}</code>",
                 rl,
             )
-            html_lines.append(html_line)
-        text = header + "\n" + "\n".join(html_lines)
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+            text = header + "\n" + html_line
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     # ── Formula-based rates – each formula as its own message ─────────
     if isinstance(formula_lines, list):
@@ -366,17 +364,45 @@ _OPERATORS = {"+", "-", "*", "/"}
 
 
 def _extract_code_values(message: Any) -> list[float]:
-    """Extract numeric values from ``code`` entities in a Telegram message."""
+    """Extract numeric values from a bot rate message.
+
+    Tries ``code`` entities first, then falls back to scanning the raw
+    text for backtick-wrapped or standalone numbers that look like rates.
+    """
     values: list[float] = []
-    if not message or not message.text or not message.entities:
+    if not message or not message.text:
         return values
-    for entity in message.entities:
-        if entity.type == "code":
-            code_text = message.text[entity.offset : entity.offset + entity.length]
-            try:
-                values.append(float(code_text.replace(",", "")))
-            except ValueError:
-                pass
+
+    # 1. Try <code> / monospace entities
+    if message.entities:
+        for entity in message.entities:
+            if entity.type == "code":
+                code_text = message.text[entity.offset : entity.offset + entity.length]
+                try:
+                    values.append(float(code_text.replace(",", "")))
+                except ValueError:
+                    pass
+    if values:
+        return values
+
+    # 2. Fallback: find numbers in the message text (colon-separated values,
+    #    backtick-wrapped, or large decimals that look like rates)
+    for m in re.finditer(r"`([^`]+)`", message.text):
+        try:
+            values.append(float(m.group(1).replace(",", "")))
+        except ValueError:
+            pass
+    if values:
+        return values
+
+    # 3. Last resort: any decimal number ≥ 1
+    for m in re.finditer(r"(\d[\d,]*\.?\d*)", message.text):
+        try:
+            v = float(m.group(1).replace(",", ""))
+            if v >= 1:
+                values.append(v)
+        except ValueError:
+            pass
     return values
 
 
@@ -451,7 +477,16 @@ def _evaluate_tokens(tokens: list) -> float:
 # ── Calculator message handler (state machine) ────────────────────────
 
 async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process text messages for the reply-based calculator."""
+    """Reply-based calculator.
+
+    Flow:
+      1. User replies to a bot rate message (e.g. showing 5000) with an
+         operator like ``/``  →  bot stores ``5000 /`` and waits.
+      2. User replies to another rate message (e.g. 5) with ``=``
+         →  bot evaluates ``5000 / 5 = 1000``.
+      -  Or the user replies with another operator to keep chaining.
+      -  Or the user types a number directly (not replying) while active.
+    """
     if update.message is None or not update.message.text:
         return
 
@@ -484,24 +519,48 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
     input_tokens = _tokenize_input(text)
 
-    # ── Reply to a rate message: prepend the rate value when the user
-    #    sent only an operator (no explicit number). ──────────────────
-    if is_rate_reply and input_tokens:
+    # ── When replying to a bot rate message, extract the rate value
+    #    from the replied message and weave it into input_tokens. ─────
+    if is_rate_reply:
         code_values = _extract_code_values(replied)
         has_number = any(isinstance(t, float) for t in input_tokens)
 
-        if not has_number and code_values:
+        if code_values and not has_number:
             if len(code_values) == 1:
-                input_tokens.insert(0, code_values[0])
+                rate_val = code_values[0]
             else:
+                # Multiple values (e.g. Buy & Sell in one message – shouldn't
+                # happen now that each line is its own message, but just in case)
                 vals = ", ".join(_format_number(v) for v in code_values)
                 await update.message.reply_text(
                     f"Олон утга байна: {vals}\n"
-                    f"Аль утгыг ашиглахаа тоогоор бичнэ үү (жишээ: 95.50 *)",
+                    f"Аль утгыг ашиглахаа тоогоор бичнэ үү (жишээ: 95.50 /)",
                 )
                 user_data["calc_active"] = True
                 user_data["calc_tokens"] = tokens
                 return
+
+            # Decide where to place the extracted rate value:
+            # • If expression needs a number next (empty or ends with op),
+            #   insert the rate before the operator/equals the user typed.
+            # • Otherwise the user already typed a number – skip.
+            needs_number = (not tokens) or (
+                tokens and not isinstance(tokens[-1], float)
+            )
+            if needs_number:
+                input_tokens.insert(0, rate_val)
+            else:
+                # Expression already has a pending number; if user sent only
+                # an operator, just use it as-is (the extracted rate is ignored).
+                pass
+
+        elif not code_values and not has_number and not active:
+            # Replied to a bot message with no extractable rate and no number
+            await update.message.reply_text(
+                "Энэ мессежнээс ханш олдсонгүй. "
+                "Ханш агуулсан мессежэд хариулна уу."
+            )
+            return
 
     if not input_tokens:
         if active:
