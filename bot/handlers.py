@@ -408,9 +408,12 @@ def _extract_code_values(message: Any) -> list[float]:
 
 
 def _tokenize_input(text: str) -> list:
-    """Parse user text into a list of floats, operator strings, and ``=``.
+    """Parse user text into a list of floats, operator strings, ``=``,
+    and percentage tuples ``("pct", multiplier, label)``.
 
-    Percentage syntax: ``+0.5%`` becomes ``* 1.005``, ``-1%`` becomes ``* 0.99``.
+    Percentage syntax: ``+0.5%`` becomes ``("pct", 1.005, "+0.5%")``.
+    Percentages are applied to the running total, not via standard order
+    of operations.
     """
     tokens: list = []
     pattern = r"([+-]\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?|[+\-*/=])"
@@ -419,8 +422,7 @@ def _tokenize_input(text: str) -> list:
         if tok.endswith("%"):
             pct_val = float(tok[:-1].replace(",", "."))
             multiplier = 1 + (pct_val / 100)
-            tokens.append("*")
-            tokens.append(multiplier)
+            tokens.append(("pct", multiplier, tok))
         elif tok in "+-*/=":
             tokens.append(tok)
         else:
@@ -439,7 +441,9 @@ def _format_expression(tokens: list) -> str:
     """Render a token list as a readable math expression."""
     parts: list[str] = []
     for t in tokens:
-        if isinstance(t, float):
+        if isinstance(t, tuple) and t[0] == "pct":
+            parts.append(t[2])  # original label like "+0.5%"
+        elif isinstance(t, float):
             parts.append(_format_number(t))
         elif t == "*":
             parts.append("×")
@@ -525,8 +529,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if is_rate_reply:
         code_values = _extract_code_values(replied)
         # Check if the user explicitly typed a leading number.
-        # Percentage syntax like "+0.5%" produces ["*", 1.005] – the
-        # multiplier is implicit, not a user-typed number.
+        # Percentage syntax like "+0.5%" produces a pct tuple, not a
+        # user-typed number, so we only check for plain floats.
         starts_with_number = bool(input_tokens) and isinstance(input_tokens[0], float)
 
         if code_values and not starts_with_number:
@@ -606,6 +610,23 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             user_data["calc_tokens"] = []
             user_data["calc_active"] = False
             return
+
+        elif isinstance(tok, tuple) and tok[0] == "pct":
+            # Percentage: evaluate everything so far, apply multiplier
+            _, multiplier, label = tok
+            if not tokens or not isinstance(tokens[-1], float):
+                await update.message.reply_text("Операторын өмнө тоо оруулна уу.")
+                return
+            try:
+                subtotal = _evaluate_tokens(tokens)
+            except Exception:
+                await update.message.reply_text("❌ Тооцоолоход алдаа гарлаа.")
+                user_data["calc_tokens"] = []
+                user_data["calc_active"] = False
+                return
+            result = subtotal * multiplier
+            # Replace all tokens with the new result and record the pct step
+            tokens = [result]
 
         elif isinstance(tok, float):
             if tokens and isinstance(tokens[-1], float):
