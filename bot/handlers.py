@@ -28,7 +28,9 @@ from db.supabase_client import (
     remove_subscription,
     get_subscriptions,
     clear_subscriptions,
+    get_all_user_ids,
 )
+from config import ADMIN_ID
 from providers.base import get_provider, all_providers
 from providers.mongolbank import fetch_mongolbank_rub_rate
 from providers.tdb import fetch_tdb_usd_noncash_sell
@@ -780,6 +782,37 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
 
 # ── Register everything on the Application ─────────────────────────────
 
+# ── /broadcast (admin only) ────────────────────────────────────────────
+
+async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if user is None or update.message is None:
+        return
+    if user.id != ADMIN_ID:
+        await update.message.reply_text("Зөвхөн админ ашиглах боломжтой.")
+        return
+    text = " ".join(ctx.args) if ctx.args else ""
+    if not text:
+        await update.message.reply_text("Хэрэглээ: /broadcast <мессеж>")
+        return
+
+    user_ids = get_all_user_ids()
+    sent, failed = 0, 0
+    for uid in user_ids:
+        try:
+            await ctx.bot.send_message(chat_id=uid, text=text)
+            sent += 1
+        except Exception:
+            failed += 1
+        # respect Telegram rate limits (~30 msgs/sec)
+        if sent % 25 == 0:
+            await asyncio.sleep(1)
+
+    await update.message.reply_text(
+        f"Broadcast дууслаа.\nИлгээсэн: {sent}\nАмжилтгүй: {failed}"
+    )
+
+
 def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -790,5 +823,6 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("rates", cmd_rates))
     app.add_handler(CommandHandler("oyuns", cmd_rates))
     app.add_handler(CommandHandler("calc", cmd_calc))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
