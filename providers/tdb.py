@@ -75,20 +75,14 @@ class TDBProvider(BaseProvider):
         ccy = rates.get(key, {})
 
         noncash = ccy.get("noncash", {})
-        cash = ccy.get("cash", {})
 
         nc_buy = noncash.get("buy")
         nc_sell = noncash.get("sell")
-        c_buy = cash.get("buy")
-        c_sell = cash.get("sell")
 
         lines: list[str] = []
         if nc_buy is not None and nc_sell is not None:
-            lines.append(f"TDB {symbol} Бэлэн бус Buy:  `{float(nc_buy):.2f}`")
-            lines.append(f"TDB {symbol} Бэлэн бус Sell: `{float(nc_sell):.2f}`")
-        if c_buy is not None and c_sell is not None:
-            lines.append(f"TDB {symbol} Бэлэн Buy:  `{float(c_buy):.2f}`")
-            lines.append(f"TDB {symbol} Бэлэн Sell: `{float(c_sell):.2f}`")
+            lines.append(f"TDB {symbol} Buy:  `{float(nc_buy):.2f}`")
+            lines.append(f"TDB {symbol} Sell: `{float(nc_sell):.2f}`")
 
         if not lines:
             return {"lines": [f"TDB {symbol}: not found"]}

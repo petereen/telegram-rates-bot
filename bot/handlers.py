@@ -373,14 +373,15 @@ def _extract_code_values(message: Any) -> list[float]:
     if not message or not message.text:
         return values
 
-    # 1. Try <code> / monospace entities
+    # 1. Try <code> / monospace entities (use parse_entity for correct
+    #    UTF-16 offset handling when custom emoji are present)
     if message.entities:
         for entity in message.entities:
             if entity.type == "code":
-                code_text = message.text[entity.offset : entity.offset + entity.length]
                 try:
+                    code_text = message.parse_entity(entity)
                     values.append(float(code_text.replace(",", "")))
-                except ValueError:
+                except (ValueError, AttributeError):
                     pass
     if values:
         return values
@@ -523,9 +524,12 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     #    from the replied message and weave it into input_tokens. ─────
     if is_rate_reply:
         code_values = _extract_code_values(replied)
-        has_number = any(isinstance(t, float) for t in input_tokens)
+        # Check if the user explicitly typed a leading number.
+        # Percentage syntax like "+0.5%" produces ["*", 1.005] – the
+        # multiplier is implicit, not a user-typed number.
+        starts_with_number = bool(input_tokens) and isinstance(input_tokens[0], float)
 
-        if code_values and not has_number:
+        if code_values and not starts_with_number:
             if len(code_values) == 1:
                 rate_val = code_values[0]
             else:
