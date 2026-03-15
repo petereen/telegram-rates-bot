@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
@@ -76,6 +76,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж",
+        reply_markup=_CALC_KEYBOARD,
     )
 
 
@@ -538,7 +539,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             user_data["calc_active"] = False
             await update.message.reply_text(
                 "❌ Тооцоолол цуцлагдлаа.",
-                reply_markup=ReplyKeyboardRemove(),
             )
         return
 
@@ -614,19 +614,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             try:
                 result = _evaluate_tokens(tokens)
             except ZeroDivisionError:
-                await update.message.reply_text(
-                    "❌ Тэгд хуваах боломжгүй.",
-                    reply_markup=ReplyKeyboardRemove(),
-                )
+                await update.message.reply_text("❌ Тэгд хуваах боломжгүй.")
                 user_data["calc_tokens"] = []
                 user_data["calc_active"] = False
                 return
             except Exception as exc:
                 log.error("Calc error: %s", exc)
-                await update.message.reply_text(
-                    "❌ Тооцоолоход алдаа гарлаа.",
-                    reply_markup=ReplyKeyboardRemove(),
-                )
+                await update.message.reply_text("❌ Тооцоолоход алдаа гарлаа.")
                 user_data["calc_tokens"] = []
                 user_data["calc_active"] = False
                 return
@@ -643,7 +637,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             await update.message.reply_text(
                 f"📐 <b>Тооцоолол</b>\n\n{display}",
                 parse_mode=ParseMode.HTML,
-                reply_markup=ReplyKeyboardRemove(),
             )
             user_data["calc_tokens"] = []
             user_data["calc_active"] = False
@@ -658,10 +651,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             try:
                 subtotal = _evaluate_tokens(tokens)
             except Exception:
-                await update.message.reply_text(
-                    "❌ Тооцоолоход алдаа гарлаа.",
-                    reply_markup=ReplyKeyboardRemove(),
-                )
+                await update.message.reply_text("❌ Тооцоолоход алдаа гарлаа.")
                 user_data["calc_tokens"] = []
                 user_data["calc_active"] = False
                 return

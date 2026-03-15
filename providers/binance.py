@@ -127,36 +127,46 @@ class BinanceProvider(BaseProvider):
             "classifies": ["mass", "profession", "fiat_trade"],
         }
         headers = {
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
             "Content-Type": "application/json",
+            "Origin": "https://p2p.binance.com",
+            "Referer": "https://p2p.binance.com/",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/131.0.0.0 Safari/537.36"
             ),
         }
-        import time
+        import time, random
         last_exc: Exception | None = None
+        ads = []
         for attempt in range(3):
             try:
                 resp = requests.post(
-                    P2P_URL, json=payload, headers=headers, timeout=15
+                    P2P_URL, json=payload, headers=headers, timeout=20
                 )
                 resp.raise_for_status()
-                ads = resp.json().get("data", [])
+                body = resp.json()
+                ads = body.get("data") or []
                 if ads:
                     break
+                log.warning(
+                    "Binance P2P %s/%s attempt %d: no ads (code=%s, msg=%s)",
+                    asset, fiat, attempt + 1,
+                    body.get("code"), body.get("message"),
+                )
                 if attempt < 2:
-                    log.warning("Binance P2P returned no ads, attempt %d", attempt + 1)
-                    time.sleep(1 * (attempt + 1))
+                    time.sleep(2 + random.random() * attempt)
                     continue
                 return {"lines": [f"Binance P2P {asset}/{fiat}: no ads"]}
             except (requests.RequestException, ValueError) as exc:
                 last_exc = exc
+                log.warning("Binance P2P %s/%s attempt %d failed: %s", asset, fiat, attempt + 1, exc)
                 if attempt < 2:
-                    log.warning("Binance P2P attempt %d failed: %s", attempt + 1, exc)
-                    time.sleep(1 * (attempt + 1))
+                    time.sleep(2 + random.random() * attempt)
                 else:
-                    log.error("Binance P2P error after retries: %s", exc)
+                    log.error("Binance P2P %s/%s error after retries: %s", asset, fiat, exc)
                     return {"lines": [f"Binance P2P {asset}/{fiat}: fetch error"]}
 
         prices = [float(ad["adv"]["price"]) for ad in ads]

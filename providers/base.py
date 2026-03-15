@@ -29,13 +29,22 @@ class BaseProvider(ABC):
 
     def get_rate(self, symbol: str) -> dict[str, Any]:
         """Return rate_data dict, using cache when available."""
-        cached = get_cached_rate(self.NAME, symbol)
-        if cached is not None:
-            log.debug("Cache hit  %s/%s", self.NAME, symbol)
-            return cached
+        try:
+            cached = get_cached_rate(self.NAME, symbol)
+            if cached is not None:
+                log.debug("Cache hit  %s/%s", self.NAME, symbol)
+                return cached
+        except Exception as exc:
+            log.warning("Cache read error %s/%s: %s", self.NAME, symbol, exc)
+
         log.info("Fetching   %s/%s", self.NAME, symbol)
         data = self.fetch(symbol)
-        set_cached_rate(self.NAME, symbol, data)
+
+        try:
+            set_cached_rate(self.NAME, symbol, data)
+        except Exception as exc:
+            log.warning("Cache write error %s/%s: %s", self.NAME, symbol, exc)
+
         return data
 
     @abstractmethod
