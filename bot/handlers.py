@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
@@ -35,6 +35,14 @@ from providers.tdb import fetch_tdb_usd_noncash_sell
 from bot.keyboards import providers_keyboard, pairs_keyboard
 
 log = logging.getLogger(__name__)
+
+
+# ── Calculator reply keyboard ──────────────────────────────────────────
+_CALC_KEYBOARD = ReplyKeyboardMarkup(
+    [["+", "-", "*", "/", "=", "Цуцлах"]],
+    resize_keyboard=True,
+    one_time_keyboard=False,
+)
 
 
 # ── Custom emoji mapping (pack: oyunsratesemoji_by_TgEmodziBot) ────────
@@ -528,7 +536,10 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         if active:
             user_data["calc_tokens"] = []
             user_data["calc_active"] = False
-            await update.message.reply_text("❌ Тооцоолол цуцлагдлаа.")
+            await update.message.reply_text(
+                "❌ Тооцоолол цуцлагдлаа.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
         return
 
     input_tokens = _tokenize_input(text)
@@ -586,7 +597,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if not input_tokens:
         if active:
             await update.message.reply_text(
-                "Зөв тоо, оператор (+, -, *, /) эсвэл = оруулна уу."
+                "Зөв тоо, оператор тэмдэг (+, -, *, /) эсвэл '=' тэмдэг оруулна уу."
             )
         return
 
@@ -603,13 +614,19 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             try:
                 result = _evaluate_tokens(tokens)
             except ZeroDivisionError:
-                await update.message.reply_text("❌ Тэгд хуваах боломжгүй.")
+                await update.message.reply_text(
+                    "❌ Тэгд хуваах боломжгүй.",
+                    reply_markup=ReplyKeyboardRemove(),
+                )
                 user_data["calc_tokens"] = []
                 user_data["calc_active"] = False
                 return
             except Exception as exc:
                 log.error("Calc error: %s", exc)
-                await update.message.reply_text("❌ Тооцоолоход алдаа гарлаа.")
+                await update.message.reply_text(
+                    "❌ Тооцоолоход алдаа гарлаа.",
+                    reply_markup=ReplyKeyboardRemove(),
+                )
                 user_data["calc_tokens"] = []
                 user_data["calc_active"] = False
                 return
@@ -626,6 +643,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             await update.message.reply_text(
                 f"📐 <b>Тооцоолол</b>\n\n{display}",
                 parse_mode=ParseMode.HTML,
+                reply_markup=ReplyKeyboardRemove(),
             )
             user_data["calc_tokens"] = []
             user_data["calc_active"] = False
@@ -635,12 +653,15 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             # Percentage: evaluate everything so far, apply multiplier
             _, multiplier, label = tok
             if not tokens or not isinstance(tokens[-1], float):
-                await update.message.reply_text("Операторын өмнө тоо оруулна уу.")
+                await update.message.reply_text("Оператор тэмдэгийн өмнө тоо оруулна уу.")
                 return
             try:
                 subtotal = _evaluate_tokens(tokens)
             except Exception:
-                await update.message.reply_text("❌ Тооцоолоход алдаа гарлаа.")
+                await update.message.reply_text(
+                    "❌ Тооцоолоход алдаа гарлаа.",
+                    reply_markup=ReplyKeyboardRemove(),
+                )
                 user_data["calc_tokens"] = []
                 user_data["calc_active"] = False
                 return
@@ -663,7 +684,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         elif isinstance(tok, float):
             if tokens and isinstance(tokens[-1], float):
                 await update.message.reply_text(
-                    "Хоёр тооны хооронд оператор (+, -, *, /) оруулна уу."
+                    "Хоёр тооны хооронд оператор тэмдэг(+, -, *, /) оруулна уу."
                 )
                 return
             tokens.append(tok)
@@ -683,26 +704,30 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         if tokens and isinstance(tokens[-1], float):
             await update.message.reply_text(
                 f"✅ {step_display}\n"
-                f"Оператор (+, -, *, /) эсвэл = оруулна уу.",
+                f"Оператор тэмдэг (+, -, *, /) эсвэл '=' тэмдэг оруулна уу.",
+                reply_markup=_CALC_KEYBOARD,
             )
         else:
             last_op = tokens[-1] if tokens else ""
             op_char = {"*": "×", "/": "÷"}.get(last_op, last_op)
             await update.message.reply_text(
                 f"✅ {step_display} {op_char} ...\n"
-                f"Дараагийн ханш/тоо оруулна уу эсвэл = дарж тооцоолно.",
+                f"Дараагийн ханш/тоо оруулна уу эсвэл '=' тэмдэг илгээж тооцоолно уу.",
+                reply_markup=_CALC_KEYBOARD,
             )
     else:
         formula = _format_expression(tokens)
         if tokens and isinstance(tokens[-1], float):
             await update.message.reply_text(
                 f"✅ {formula}\n"
-                f"Оператор (+, -, *, /) эсвэл = оруулна уу.",
+                f"Оператор тэмдэг (+, -, *, /) эсвэл '=' тэмдэг оруулна уу.",
+                reply_markup=_CALC_KEYBOARD,
             )
         else:
             await update.message.reply_text(
                 f"✅ {formula} ...\n"
-                f"Дараагийн ханш/тоо оруулна уу эсвэл = дарж тооцоолно.",
+                f"Дараагийн ханш/тоо оруулна уу эсвэл '=' тэмдэг илгээж тооцоолно уу.",
+                reply_markup=_CALC_KEYBOARD,
             )
 
 
