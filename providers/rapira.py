@@ -43,20 +43,26 @@ class RapiraProvider(BaseProvider):
         if symbol not in _ALL_PAIRS:
             return {"lines": [f"Rapira {symbol}: unsupported"]}
 
-        try:
-            resp = requests.get(_RATES_URL, timeout=15)
-            resp.raise_for_status()
-            body = resp.json()
-        except (requests.RequestException, ValueError) as exc:
-            log.error("Rapira rates error: %s", exc)
-            return {"lines": [f"Rapira {symbol}: fetch error"]}
+        import time
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = requests.get(_RATES_URL, timeout=15)
+                resp.raise_for_status()
+                body = resp.json()
+                items = body.get("data", [])
+                for item in items:
+                    if item.get("symbol") == symbol:
+                        return self._format_item(symbol, item)
+                return {"lines": [f"Rapira {symbol}: not found"]}
+            except (requests.RequestException, ValueError) as exc:
+                last_exc = exc
+                if attempt < 2:
+                    log.warning("Rapira attempt %d failed: %s", attempt + 1, exc)
+                    time.sleep(1 * (attempt + 1))
 
-        items = body.get("data", [])
-        for item in items:
-            if item.get("symbol") == symbol:
-                return self._format_item(symbol, item)
-
-        return {"lines": [f"Rapira {symbol}: not found"]}
+        log.error("Rapira rates error after retries: %s", last_exc)
+        return {"lines": [f"Rapira {symbol}: fetch error"]}
 
     # ── helpers ────────────────────────────────────────────────────────
 

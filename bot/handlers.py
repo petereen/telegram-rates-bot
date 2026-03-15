@@ -191,10 +191,11 @@ async def _build_formula_section() -> list[str]:
                 f"  ▶ <code>{delcrado:.2f}</code>"
             )
         else:
-            lines.append("<b>ДЕЛЬКРАДО:</b> алдаа")
+            log.warning("ДЕЛЬКРАДО: MongolBank RUB rate not found")
+            lines.append("<b>ДЕЛЬКРАДО:</b> алдаа (MongolBank)")
     except Exception as exc:
         log.error("Formula ДЕЛЬКРАДО error: %s", exc)
-        lines.append("<b>ДЕЛЬКРАДО:</b> алдаа")
+        lines.append("<b>ДЕЛЬКРАДО:</b> алдаа (MongolBank)")
 
     # ── ТРИКУЭТРА ─────────────────────────────────────────────────────
     try:
@@ -237,10 +238,18 @@ async def _build_formula_section() -> list[str]:
                 f"  ▶ <code>{rub_belen:.2f}</code>"
             )
         else:
-            lines.append("<b>RUB БЭЛЭН:</b> алдаа")
+            missing = []
+            if min_price is None:
+                missing.append("Binance P2P")
+            if rapira_buy is None:
+                missing.append("Rapira")
+            src = ", ".join(missing)
+            log.warning("RUB БЭЛЭН: missing data from %s", src)
+            lines.append(f"<b>RUB БЭЛЭН:</b> алдаа ({src})")
     except Exception as exc:
         log.error("Formula RUB БЭЛЭН error: %s", exc)
-        lines.append("<b>RUB БЭЛЭН:</b> алдаа")
+        src = "Binance P2P" if isinstance(binance_data, Exception) else "Rapira"
+        lines.append(f"<b>RUB БЭЛЭН:</b> алдаа ({src})")
 
     return lines
 
@@ -551,18 +560,22 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             # Decide where to place the extracted rate value:
             # • If expression needs a number next (empty or ends with op),
             #   insert the rate before the operator/equals the user typed.
-            # • Otherwise the user already typed a number – skip.
+            # • Otherwise check for compound operators (+=, -=, *=, /=)
+            #   and insert rate_val between operator and "=".
             needs_number = (not tokens) or (
                 tokens and not isinstance(tokens[-1], float)
             )
             if needs_number:
                 input_tokens.insert(0, rate_val)
             else:
-                # Expression already has a pending number; if user sent only
-                # an operator, just use it as-is (the extracted rate is ignored).
-                pass
+                # Compound operator support: e.g. user types "+=" replying
+                # to a rate → insert that rate between the op and "=".
+                for i in range(len(input_tokens) - 1):
+                    if input_tokens[i] in _OPERATORS and input_tokens[i + 1] == "=":
+                        input_tokens.insert(i + 1, rate_val)
+                        break
 
-        elif not code_values and not has_number and not active:
+        elif not code_values and not starts_with_number and not active:
             # Replied to a bot message with no extractable rate and no number
             await update.message.reply_text(
                 "Энэ мессежнээс ханш олдсонгүй. "
@@ -578,6 +591,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     # ── Process each token ──────────────────────────────────────────
+    step_display = ""  # human-readable description built during pct steps
+
     for tok in input_tokens:
         if tok == "=":
             if not tokens or not isinstance(tokens[-1], float):
@@ -599,12 +614,17 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                 user_data["calc_active"] = False
                 return
 
-            formula = _format_expression(tokens)
             result_str = _format_number(result)
+            if len(tokens) > 1:
+                formula = _format_expression(tokens)
+                display = f"{formula} = <code>{result_str}</code>"
+            elif step_display:
+                display = f"{step_display}\n\nХариу: <code>{result_str}</code>"
+            else:
+                display = f"Хариу: <code>{result_str}</code>"
+
             await update.message.reply_text(
-                f"📐 <b>Тооцоолол</b>\n\n"
-                f"Томьёо: {formula}\n"
-                f"Хариу: <code>{result_str}</code>",
+                f"📐 <b>Тооцоолол</b>\n\n{display}",
                 parse_mode=ParseMode.HTML,
             )
             user_data["calc_tokens"] = []
@@ -625,7 +645,19 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                 user_data["calc_active"] = False
                 return
             result = subtotal * multiplier
-            # Replace all tokens with the new result and record the pct step
+
+            # Build a readable description of this step
+            if len(tokens) > 1:
+                step_display = (
+                    f"{_format_expression(tokens)} = {_format_number(subtotal)}"
+                    f" {label} = {_format_number(result)}"
+                )
+            else:
+                step_display = (
+                    f"{_format_number(subtotal)} {label} = {_format_number(result)}"
+                )
+
+            # Replace all tokens with the new result
             tokens = [result]
 
         elif isinstance(tok, float):
@@ -646,17 +678,32 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     user_data["calc_tokens"] = tokens
     user_data["calc_active"] = True
 
-    formula = _format_expression(tokens)
-    if tokens and isinstance(tokens[-1], float):
-        await update.message.reply_text(
-            f"✅ {formula}\n"
-            f"Оператор (+, -, *, /) эсвэл = оруулна уу.",
-        )
+    if step_display:
+        # We just processed a percentage — show the full process
+        if tokens and isinstance(tokens[-1], float):
+            await update.message.reply_text(
+                f"✅ {step_display}\n"
+                f"Оператор (+, -, *, /) эсвэл = оруулна уу.",
+            )
+        else:
+            last_op = tokens[-1] if tokens else ""
+            op_char = {"*": "×", "/": "÷"}.get(last_op, last_op)
+            await update.message.reply_text(
+                f"✅ {step_display} {op_char} ...\n"
+                f"Дараагийн ханш/тоо оруулна уу эсвэл = дарж тооцоолно.",
+            )
     else:
-        await update.message.reply_text(
-            f"✅ {formula} ...\n"
-            f"Дараагийн ханш/тоо оруулна уу эсвэл = дарж тооцоолно.",
-        )
+        formula = _format_expression(tokens)
+        if tokens and isinstance(tokens[-1], float):
+            await update.message.reply_text(
+                f"✅ {formula}\n"
+                f"Оператор (+, -, *, /) эсвэл = оруулна уу.",
+            )
+        else:
+            await update.message.reply_text(
+                f"✅ {formula} ...\n"
+                f"Дараагийн ханш/тоо оруулна уу эсвэл = дарж тооцоолно.",
+            )
 
 
 # ── Callback-query router (inline keyboard taps) ──────────────────────

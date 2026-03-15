@@ -48,14 +48,24 @@ _PAIR_TO_CODE: dict[str, str] = {
 }
 
 
-def _fetch_from_api(currency_codes: str) -> list[dict]:
-    """Fetch rates for the given pipe-separated currency codes."""
-    resp = requests.get(_API_URL, params={"currency": currency_codes}, timeout=15)
-    resp.raise_for_status()
-    body = resp.json()
-    if not body or not isinstance(body, list):
-        return []
-    return body
+def _fetch_from_api(currency_codes: str, retries: int = 3) -> list[dict]:
+    """Fetch rates for the given pipe-separated currency codes (with retries)."""
+    import time
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            resp = requests.get(_API_URL, params={"currency": currency_codes}, timeout=15)
+            resp.raise_for_status()
+            body = resp.json()
+            if not body or not isinstance(body, list):
+                return []
+            return body
+        except (requests.RequestException, ValueError) as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                log.warning("MongolBank API attempt %d failed: %s", attempt + 1, exc)
+                time.sleep(1 * (attempt + 1))
+    raise last_exc  # type: ignore[misc]
 
 
 @register_provider

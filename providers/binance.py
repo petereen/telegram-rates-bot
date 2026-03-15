@@ -134,18 +134,30 @@ class BinanceProvider(BaseProvider):
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
         }
-        try:
-            resp = requests.post(
-                P2P_URL, json=payload, headers=headers, timeout=15
-            )
-            resp.raise_for_status()
-            ads = resp.json().get("data", [])
-        except (requests.RequestException, ValueError) as exc:
-            log.error("Binance P2P error: %s", exc)
-            return {"lines": [f"Binance P2P {asset}/{fiat}: fetch error"]}
-
-        if not ads:
-            return {"lines": [f"Binance P2P {asset}/{fiat}: no ads"]}
+        import time
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    P2P_URL, json=payload, headers=headers, timeout=15
+                )
+                resp.raise_for_status()
+                ads = resp.json().get("data", [])
+                if ads:
+                    break
+                if attempt < 2:
+                    log.warning("Binance P2P returned no ads, attempt %d", attempt + 1)
+                    time.sleep(1 * (attempt + 1))
+                    continue
+                return {"lines": [f"Binance P2P {asset}/{fiat}: no ads"]}
+            except (requests.RequestException, ValueError) as exc:
+                last_exc = exc
+                if attempt < 2:
+                    log.warning("Binance P2P attempt %d failed: %s", attempt + 1, exc)
+                    time.sleep(1 * (attempt + 1))
+                else:
+                    log.error("Binance P2P error after retries: %s", exc)
+                    return {"lines": [f"Binance P2P {asset}/{fiat}: fetch error"]}
 
         prices = [float(ad["adv"]["price"]) for ad in ads]
         sorted_prices = sorted(prices)
