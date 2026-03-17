@@ -112,6 +112,55 @@ def clear_subscriptions(telegram_id: int) -> int:
     return len(result.data) if result.data else 0
 
 
+# ── Whitelist ──────────────────────────────────────────────────────────
+
+def is_whitelisted(telegram_id: int) -> bool:
+    sb = _get_client()
+    result = (
+        sb.table("whitelist")
+        .select("telegram_id")
+        .eq("telegram_id", telegram_id)
+        .execute()
+    )
+    return bool(result.data)
+
+
+def add_to_whitelist(telegram_id: int) -> bool:
+    """Add a user to the whitelist. Returns False if already present."""
+    sb = _get_client()
+    existing = (
+        sb.table("whitelist")
+        .select("telegram_id")
+        .eq("telegram_id", telegram_id)
+        .execute()
+    )
+    if existing.data:
+        return False
+    sb.table("whitelist").insert({"telegram_id": telegram_id}).execute()
+    return True
+
+
+def remove_from_whitelist(telegram_id: int) -> bool:
+    """Remove a user from the whitelist. Returns False if not found."""
+    sb = _get_client()
+    existing = (
+        sb.table("whitelist")
+        .select("telegram_id")
+        .eq("telegram_id", telegram_id)
+        .execute()
+    )
+    if not existing.data:
+        return False
+    sb.table("whitelist").delete().eq("telegram_id", telegram_id).execute()
+    return True
+
+
+def get_whitelist() -> list[int]:
+    sb = _get_client()
+    result = sb.table("whitelist").select("telegram_id").execute()
+    return [row["telegram_id"] for row in result.data]
+
+
 # ── Rate Cache ─────────────────────────────────────────────────────────
 
 # In-memory cache: {(provider, symbol): (fetched_at, rate_data)}

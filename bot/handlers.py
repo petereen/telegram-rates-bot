@@ -28,6 +28,10 @@ from db.supabase_client import (
     remove_subscription,
     get_subscriptions,
     clear_subscriptions,
+    is_whitelisted,
+    add_to_whitelist,
+    remove_from_whitelist,
+    get_whitelist,
 )
 from providers.base import get_provider, all_providers
 from providers.mongolbank import fetch_mongolbank_rub_rate
@@ -35,6 +39,22 @@ from providers.tdb import fetch_tdb_usd_noncash_sell
 from bot.keyboards import providers_keyboard, pairs_keyboard
 
 log = logging.getLogger(__name__)
+
+# Admin user IDs – only these users can manage the whitelist
+ADMIN_IDS: set[int] = {1447446407, 1932946217}
+
+
+async def _check_access(update: Update) -> bool:
+    """Return True if the user is whitelisted, otherwise reply and return False."""
+    user = update.effective_user
+    if user is None:
+        return False
+    if is_whitelisted(user.id):
+        return True
+    msg = update.message or (update.callback_query and update.callback_query.message)
+    if update.message:
+        await update.message.reply_text("⛔ Танд энэ ботыг ашиглах эрх байхгүй байна.")
+    return False
 
 
 # ── Calculator reply keyboard ──────────────────────────────────────────
@@ -65,6 +85,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if user is None or update.message is None:
         return
+    if not await _check_access(update):
+        return
     ensure_user(user.id, user.username)
     await update.message.reply_text(
         "Дараах коммандуудыг ашиглан бот ашиглана уу\n\n"
@@ -82,6 +104,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
+        return
+    if not await _check_access(update):
         return
     await update.message.reply_text(
         "/add  – валютын хослол нэмэх\n"
@@ -101,6 +125,8 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
+    if not await _check_access(update):
+        return
     ensure_user(update.effective_user.id, update.effective_user.username)  # type: ignore[union-attr]
     await update.message.reply_text(
         "Валютын ханш авах эх сурвалж сонгоно уу:", reply_markup=providers_keyboard()
@@ -111,6 +137,8 @@ async def cmd_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
+        return
+    if not await _check_access(update):
         return
     user_id = update.effective_user.id  # type: ignore[union-attr]
     subs = get_subscriptions(user_id)
@@ -126,6 +154,8 @@ async def cmd_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
+        return
+    if not await _check_access(update):
         return
     user_id = update.effective_user.id  # type: ignore[union-attr]
     subs = get_subscriptions(user_id)
@@ -149,6 +179,8 @@ async def cmd_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
+        return
+    if not await _check_access(update):
         return
     user_id = update.effective_user.id  # type: ignore[union-attr]
     count = clear_subscriptions(user_id)
@@ -268,6 +300,8 @@ async def _build_formula_section() -> list[str]:
 async def cmd_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
+    if not await _check_access(update):
+        return
 
     await update.message.reply_text("Тооцоолж байна, түр хүлээнэ үү…")
 
@@ -287,6 +321,8 @@ async def cmd_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
+        return
+    if not await _check_access(update):
         return
     user_id = update.effective_user.id  # type: ignore[union-attr]
     subs = get_subscriptions(user_id)
@@ -516,6 +552,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     text = update.message.text.strip()
     if not text:
         return
+    if not await _check_access(update):
+        return
 
     user_data = ctx.user_data
     tokens: list = user_data.get("calc_tokens", [])
@@ -727,6 +765,9 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     query = update.callback_query
     if query is None:
         return
+    if not await _check_access(update):
+        await query.answer("⛔ Эрх байхгүй", show_alert=True)
+        return
     await query.answer()
 
     data = query.data or ""
@@ -778,6 +819,64 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
+# ── Hidden admin commands: /wl_add, /wl_remove, /wl_list ──────────────
+
+async def cmd_wl_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    user = update.effective_user
+    if user is None or user.id not in ADMIN_IDS:
+        return  # silently ignore for non-admins
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("Хэрэглэгчийн ID оруулна уу: /wl_add <user_id>")
+        return
+    try:
+        target_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("ID тоо байх ёстой.")
+        return
+    if add_to_whitelist(target_id):
+        await update.message.reply_text(f"✅ {target_id} whitelist-д нэмэгдлээ.")
+    else:
+        await update.message.reply_text(f"{target_id} аль хэдийн whitelist-д байна.")
+
+
+async def cmd_wl_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    user = update.effective_user
+    if user is None or user.id not in ADMIN_IDS:
+        return
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("Хэрэглэгчийн ID оруулна уу: /wl_remove <user_id>")
+        return
+    try:
+        target_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("ID тоо байх ёстой.")
+        return
+    if remove_from_whitelist(target_id):
+        await update.message.reply_text(f"❌ {target_id} whitelist-ээс хасагдлаа.")
+    else:
+        await update.message.reply_text(f"{target_id} whitelist-д байхгүй байна.")
+
+
+async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
+    user = update.effective_user
+    if user is None or user.id not in ADMIN_IDS:
+        return
+    ids = get_whitelist()
+    if not ids:
+        await update.message.reply_text("Whitelist хоосон байна.")
+        return
+    lines = [str(uid) for uid in ids]
+    await update.message.reply_text("Whitelist:\n" + "\n".join(lines))
+
+
 # ── Register everything on the Application ─────────────────────────────
 
 def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
@@ -790,5 +889,8 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("rates", cmd_rates))
     app.add_handler(CommandHandler("oyuns", cmd_rates))
     app.add_handler(CommandHandler("calc", cmd_calc))
+    app.add_handler(CommandHandler("wl_add", cmd_wl_add))
+    app.add_handler(CommandHandler("wl_remove", cmd_wl_remove))
+    app.add_handler(CommandHandler("wl_list", cmd_wl_list))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

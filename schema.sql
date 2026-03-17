@@ -19,7 +19,18 @@ create table if not exists public.user_subscriptions (
 
 create index if not exists idx_subs_user on public.user_subscriptions(telegram_id);
 
--- 3. Cached rates table
+-- 3. Whitelist table
+create table if not exists public.whitelist (
+    telegram_id  bigint       primary key,
+    added_at     timestamptz  not null default now()
+);
+
+-- Seed initial whitelisted users
+insert into public.whitelist (telegram_id)
+values (1447446407), (1932946217)
+on conflict (telegram_id) do nothing;
+
+-- 4. Cached rates table
 create table if not exists public.cached_rates (
     provider    text         not null,
     symbol      text         not null,
