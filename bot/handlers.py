@@ -36,7 +36,7 @@ from db.supabase_client import (
 from providers.base import get_provider, all_providers
 from providers.mongolbank import fetch_mongolbank_rub_rate
 from providers.tdb import fetch_tdb_usd_noncash_sell
-from bot.keyboards import providers_keyboard, pairs_keyboard
+from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard
 
 log = logging.getLogger(__name__)
 
@@ -397,19 +397,27 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             continue
 
         raw_lines = data.get("lines", [f"{prov_name} {sym}: –"])
-        for rl in raw_lines:
+        for line_idx, rl in enumerate(raw_lines):
             html_line = re.sub(
                 r"`([^`]+)`",
                 lambda m: f"<code>{m.group(1)}</code>",
                 rl,
             )
             text = header + "\n" + html_line
-            await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+            rate_id = f"{prov_name}:{sym}:{line_idx}"
+            await update.message.reply_text(
+                text, parse_mode=ParseMode.HTML,
+                reply_markup=rate_actions_keyboard(rate_id),
+            )
 
     # ── Formula-based rates – each formula as its own message ─────────
     if isinstance(formula_lines, list):
-        for fl in formula_lines:
-            await update.message.reply_text(fl, parse_mode=ParseMode.HTML)
+        for fi, fl in enumerate(formula_lines):
+            rate_id = f"_f:{fi}"
+            await update.message.reply_text(
+                fl, parse_mode=ParseMode.HTML,
+                reply_markup=rate_actions_keyboard(rate_id),
+            )
 
 
 # ── Calculator helpers ─────────────────────────────────────────────────
@@ -816,6 +824,70 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     elif data == "back:providers":
         await query.edit_message_text(
             "Эх сурвалж сонгоно уу:", reply_markup=providers_keyboard()
+        )
+
+    elif data.startswith("upd:"):
+        rate_id = data[4:]
+        if rate_id.startswith("_f:"):
+            # Formula rate update
+            idx = int(rate_id.split(":")[1])
+            formula_lines = await _build_formula_section()
+            if idx < len(formula_lines):
+                text = formula_lines[idx]
+            else:
+                text = "Алдаа: тооцоолох боломжгүй."
+            await query.edit_message_text(
+                text, parse_mode=ParseMode.HTML,
+                reply_markup=rate_actions_keyboard(rate_id),
+            )
+        else:
+            # Provider rate update – fetch fresh data (bypass cache)
+            parts = rate_id.split(":")
+            prov_name = parts[0]
+            sym = parts[1]
+            line_idx = int(parts[2]) if len(parts) > 2 else 0
+            try:
+                prov = get_provider(prov_name)
+                data_result = await asyncio.to_thread(prov.fetch, sym)
+                emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
+                header = (
+                    f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
+                    if emoji_tag
+                    else f"<b>{_escape_html(prov_name)}</b>"
+                )
+                raw_lines = data_result.get("lines", [f"{prov_name} {sym}: –"])
+                rl = raw_lines[line_idx] if line_idx < len(raw_lines) else raw_lines[0]
+                html_line = re.sub(
+                    r"`([^`]+)`",
+                    lambda m: f"<code>{m.group(1)}</code>",
+                    rl,
+                )
+                text = header + "\n" + html_line
+                await query.edit_message_text(
+                    text, parse_mode=ParseMode.HTML,
+                    reply_markup=rate_actions_keyboard(rate_id),
+                )
+            except Exception as exc:
+                log.error("Rate update error %s: %s", rate_id, exc)
+                await query.answer("Шинэчлэхэд алдаа гарлаа", show_alert=True)
+
+    elif data.startswith("shr:"):
+        # Forward the rate message (creates a clean copy without inline keyboard)
+        await ctx.bot.forward_message(
+            chat_id=query.message.chat_id,
+            from_chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+        )
+
+    elif data == "menu":
+        await query.message.reply_text(
+            "/add  – валютын хослол нэмэх\n"
+            "/list – хадгалсан валютын жагсаалт\n"
+            "/rates – ханшийн жагсаалт авах\n"
+            "/calc – тооцоолсон ханш\n"
+            "/remove – валютын хослол хасах\n"
+            "/clear – валютын жагсаалт устгах\n"
+            "/help – тусламж",
         )
 
 
