@@ -4,7 +4,7 @@ bot.keyboards – Inline-keyboard builders for provider / pair selection.
 
 from __future__ import annotations
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, SwitchInlineQueryChosenChat
 
 from providers.base import all_providers, get_provider
 
@@ -61,6 +61,15 @@ def rate_actions_keyboard(rate_id: str) -> InlineKeyboardMarkup:
     """Inline keyboard with Update, Share, and Menu buttons for rate messages."""
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("🔄 Шинэчлэх", callback_data=f"upd:{rate_id}"),
-        InlineKeyboardButton("↗️ Хуваалцах", callback_data=f"shr:{rate_id}"),
+        InlineKeyboardButton(
+            "↗️ Хуваалцах",
+            switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                query=rate_id,
+                allow_user_chats=True,
+                allow_group_chats=True,
+                allow_channel_chats=True,
+                allow_bot_chats=False,
+            ),
+        ),
         InlineKeyboardButton("📋 Меню", callback_data="menu"),
     ]])

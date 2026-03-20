@@ -13,10 +13,12 @@ from typing import Any
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
+from telegram import InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
     CallbackQueryHandler,
+    InlineQueryHandler,
     MessageHandler,
     Application,
     filters,
@@ -32,6 +34,7 @@ from db.supabase_client import (
     add_to_whitelist,
     remove_from_whitelist,
     get_whitelist,
+    set_cached_rate,
 )
 from providers.base import get_provider, all_providers
 from providers.mongolbank import fetch_mongolbank_rub_rate
@@ -776,9 +779,12 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
     if not await _check_access(update):
         await query.answer("⛔ Эрх байхгүй", show_alert=True)
         return
-    await query.answer()
 
     data = query.data or ""
+
+    # Defer query.answer() for update button so we can show result after fetch
+    if not data.startswith("upd:"):
+        await query.answer()
     user_id = update.effective_user.id  # type: ignore[union-attr]
 
     if data.startswith("prov:"):
@@ -828,18 +834,27 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
 
     elif data.startswith("upd:"):
         rate_id = data[4:]
+        _UB_TZ = timezone(timedelta(hours=8))
+        now_ub = datetime.now(_UB_TZ)
+        ts_line = f"\n<i>🔄 {now_ub:%H:%M:%S}</i>"
+
         if rate_id.startswith("_f:"):
             # Formula rate update
             idx = int(rate_id.split(":")[1])
-            formula_lines = await _build_formula_section()
-            if idx < len(formula_lines):
-                text = formula_lines[idx]
-            else:
-                text = "Алдаа: тооцоолох боломжгүй."
-            await query.edit_message_text(
-                text, parse_mode=ParseMode.HTML,
-                reply_markup=rate_actions_keyboard(rate_id),
-            )
+            try:
+                formula_lines = await _build_formula_section()
+                if idx < len(formula_lines):
+                    text = formula_lines[idx] + ts_line
+                else:
+                    text = "Алдаа: тооцоолох боломжгүй."
+                await query.edit_message_text(
+                    text, parse_mode=ParseMode.HTML,
+                    reply_markup=rate_actions_keyboard(rate_id),
+                )
+                await query.answer("✅ Шинэчлэгдлээ")
+            except Exception as exc:
+                log.error("Formula update error %s: %s", rate_id, exc)
+                await query.answer("Шинэчлэхэд алдаа гарлаа", show_alert=True)
         else:
             # Provider rate update – fetch fresh data (bypass cache)
             parts = rate_id.split(":")
@@ -849,6 +864,11 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
             try:
                 prov = get_provider(prov_name)
                 data_result = await asyncio.to_thread(prov.fetch, sym)
+                # Update the cache with fresh data
+                try:
+                    set_cached_rate(prov_name, sym, data_result)
+                except Exception:
+                    pass
                 emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
                 header = (
                     f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
@@ -862,22 +882,18 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
                     lambda m: f"<code>{m.group(1)}</code>",
                     rl,
                 )
-                text = header + "\n" + html_line
+                text = header + "\n" + html_line + ts_line
                 await query.edit_message_text(
                     text, parse_mode=ParseMode.HTML,
                     reply_markup=rate_actions_keyboard(rate_id),
                 )
+                await query.answer("✅ Шинэчлэгдлээ")
             except Exception as exc:
                 log.error("Rate update error %s: %s", rate_id, exc)
                 await query.answer("Шинэчлэхэд алдаа гарлаа", show_alert=True)
 
     elif data.startswith("shr:"):
-        # Forward the rate message (creates a clean copy without inline keyboard)
-        await ctx.bot.forward_message(
-            chat_id=query.message.chat_id,
-            from_chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-        )
+        pass  # handled via switch_inline_query_chosen_chat
 
     elif data == "menu":
         await query.message.reply_text(
@@ -949,6 +965,72 @@ async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Whitelist:\n" + "\n".join(lines))
 
 
+# ── Inline query handler (share to chosen chat) ───────────────────────
+
+async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline queries triggered by the Share button.
+
+    The query text is the rate_id. We fetch the rate, build the text,
+    and return it as an InlineQueryResultArticle so the user can send
+    to the chosen chat.
+    """
+    query = update.inline_query
+    if query is None:
+        return
+    rate_id = (query.query or "").strip()
+    if not rate_id:
+        await query.answer([], cache_time=0)
+        return
+
+    try:
+        if rate_id.startswith("_f:"):
+            idx = int(rate_id.split(":")[1])
+            formula_lines = await _build_formula_section()
+            if idx < len(formula_lines):
+                html_text = formula_lines[idx]
+            else:
+                html_text = "Ханш олдсонгүй."
+        else:
+            parts = rate_id.split(":")
+            prov_name = parts[0]
+            sym = parts[1]
+            line_idx = int(parts[2]) if len(parts) > 2 else 0
+            prov = get_provider(prov_name)
+            data = await asyncio.to_thread(prov.get_rate, sym)
+            emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
+            header = (
+                f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
+                if emoji_tag
+                else f"<b>{_escape_html(prov_name)}</b>"
+            )
+            raw_lines = data.get("lines", [f"{prov_name} {sym}: \u2013"])
+            rl = raw_lines[line_idx] if line_idx < len(raw_lines) else raw_lines[0]
+            html_line = re.sub(
+                r"`([^`]+)`",
+                lambda m: f"<code>{m.group(1)}</code>",
+                rl,
+            )
+            html_text = header + "\n" + html_line
+    except Exception as exc:
+        log.error("Inline query error for %s: %s", rate_id, exc)
+        html_text = "Ханш татахад алдаа гарлаа."
+
+    # Strip HTML tags for the plain-text title
+    title = re.sub(r"<[^>]+>", "", html_text).split("\n")[0][:80]
+
+    results = [
+        InlineQueryResultArticle(
+            id=rate_id,
+            title=title,
+            input_message_content=InputTextMessageContent(
+                message_text=html_text,
+                parse_mode=ParseMode.HTML,
+            ),
+        )
+    ]
+    await query.answer(results, cache_time=0)
+
+
 # ── Register everything on the Application ─────────────────────────────
 
 def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
@@ -965,4 +1047,5 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("wl_remove", cmd_wl_remove))
     app.add_handler(CommandHandler("wl_list", cmd_wl_list))
     app.add_handler(CallbackQueryHandler(callback_router))
+    app.add_handler(InlineQueryHandler(inline_query_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
