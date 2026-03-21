@@ -11,12 +11,13 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
     CallbackQueryHandler,
+    InlineQueryHandler,
     MessageHandler,
     Application,
     filters,
@@ -893,44 +894,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
                 await query.answer("Шинэчлэхэд алдаа гарлаа", show_alert=True)
 
     elif data.startswith("shr:"):
-        # Send a clean formatted copy (no buttons) that the user can forward
-        rate_id = data[4:]
-        try:
-            if rate_id.startswith("_f:"):
-                idx = int(rate_id.split(":")[1])
-                formula_lines = await _build_formula_section()
-                if idx < len(formula_lines):
-                    html_text = formula_lines[idx]
-                else:
-                    html_text = "Ханш олдсонгүй."
-            else:
-                parts = rate_id.split(":")
-                prov_name = parts[0]
-                sym = parts[1]
-                line_idx = int(parts[2]) if len(parts) > 2 else 0
-                prov = get_provider(prov_name)
-                rate_data = await asyncio.to_thread(prov.get_rate, sym)
-                emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
-                header = (
-                    f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
-                    if emoji_tag
-                    else f"<b>{_escape_html(prov_name)}</b>"
-                )
-                raw_lines = rate_data.get("lines", [f"{prov_name} {sym}: \u2013"])
-                rl = raw_lines[line_idx] if line_idx < len(raw_lines) else raw_lines[0]
-                html_line = re.sub(
-                    r"`([^`]+)`",
-                    lambda m: f"<code>{m.group(1)}</code>",
-                    rl,
-                )
-                html_text = header + "\n" + html_line
-
-            await query.message.reply_text(
-                html_text, parse_mode=ParseMode.HTML,
-            )
-        except Exception as exc:
-            log.error("Share error %s: %s", rate_id, exc)
-            await query.answer("Хуваалцахад алдаа гарлаа", show_alert=True)
+        pass  # share is handled via switch_inline_query + inline_query_handler
 
     elif data == "menu":
         await query.message.reply_text(
@@ -1002,6 +966,80 @@ async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Whitelist:\n" + "\n".join(lines))
 
 
+# ── Inline query handler (share via @botname) ─────────────────────
+
+async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline queries triggered by the Share button.
+
+    The query string is the rate_id. We fetch the rate, build a formatted
+    InlineQueryResultArticle so the user taps it and it sends the rate
+    to the chosen chat with 'via @botname' attribution.
+    """
+    iq = update.inline_query
+    if iq is None:
+        return
+
+    rate_id = (iq.query or "").strip()
+    if not rate_id:
+        await iq.answer([], cache_time=0)
+        return
+
+    try:
+        if rate_id.startswith("_f:"):
+            idx = int(rate_id.split(":")[1])
+            formula_lines = await _build_formula_section()
+            if idx < len(formula_lines):
+                html_text = formula_lines[idx]
+            else:
+                html_text = "Ханш олдсонгүй."
+        else:
+            parts = rate_id.split(":")
+            prov_name = parts[0]
+            sym = parts[1]
+            line_idx = int(parts[2]) if len(parts) > 2 else 0
+            prov = get_provider(prov_name)
+            rate_data = await asyncio.to_thread(prov.get_rate, sym)
+            emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
+            header = (
+                f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
+                if emoji_tag
+                else f"<b>{_escape_html(prov_name)}</b>"
+            )
+            raw_lines = rate_data.get("lines", [f"{prov_name} {sym}: \u2013"])
+            rl = raw_lines[line_idx] if line_idx < len(raw_lines) else raw_lines[0]
+            html_line = re.sub(
+                r"`([^`]+)`",
+                lambda m: f"<code>{m.group(1)}</code>",
+                rl,
+            )
+            html_text = header + "\n" + html_line
+    except Exception as exc:
+        log.error("Inline query error for %s: %s", rate_id, exc)
+        html_text = "Ханш татахад алдаа гарлаа."
+
+    # Strip <tg-emoji> tags (custom emoji won't render in inline results)
+    clean_html = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', html_text)
+
+    # Plain text for the result card title / description
+    plain = re.sub(r"<[^>]+>", "", clean_html)
+    plain_lines = plain.split("\n")
+    title = plain_lines[0][:80]
+    description = "\n".join(plain_lines[1:])[:120] or "Ханш хуваалцах"
+
+    results = [
+        InlineQueryResultArticle(
+            id=rate_id[:64],
+            title=title,
+            description=description,
+            input_message_content=InputTextMessageContent(
+                message_text=clean_html,
+                parse_mode=ParseMode.HTML,
+            ),
+        )
+    ]
+    await iq.answer(results, cache_time=0)
+
+
 # ── Register everything on the Application ─────────────────────────────
 
 def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
@@ -1018,4 +1056,5 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("wl_remove", cmd_wl_remove))
     app.add_handler(CommandHandler("wl_list", cmd_wl_list))
     app.add_handler(CallbackQueryHandler(callback_router))
+    app.add_handler(InlineQueryHandler(inline_query_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

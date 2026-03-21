@@ -61,6 +61,6 @@ def rate_actions_keyboard(rate_id: str) -> InlineKeyboardMarkup:
     """Inline keyboard with Update, Share, and Menu buttons for rate messages."""
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("🔄 Шинэчлэх", callback_data=f"upd:{rate_id}"),
-        InlineKeyboardButton("↗️ Хуваалцах", callback_data=f"shr:{rate_id}"),
+        InlineKeyboardButton("↗️ Хуваалцах", switch_inline_query=rate_id),
         InlineKeyboardButton("📋 Меню", callback_data="menu"),
     ]])
