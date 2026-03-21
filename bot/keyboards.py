@@ -64,3 +64,11 @@ def rate_actions_keyboard(rate_id: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton("↗️ Хуваалцах", switch_inline_query=rate_id),
         InlineKeyboardButton("📋 Меню", callback_data="menu"),
     ]])
+
+
+def share_menu_keyboard(share_text: str) -> InlineKeyboardMarkup:
+    """Inline keyboard with Share and Menu buttons (no Update)."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("↗️ Хуваалцах", switch_inline_query=f"_t:{share_text}"),
+        InlineKeyboardButton("📋 Меню", callback_data="menu"),
+    ]])

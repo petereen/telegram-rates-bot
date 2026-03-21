@@ -38,7 +38,7 @@ from db.supabase_client import (
 from providers.base import get_provider, all_providers
 from providers.mongolbank import fetch_mongolbank_rub_rate
 from providers.tdb import fetch_tdb_usd_noncash_sell
-from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard
+from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
 
 log = logging.getLogger(__name__)
 
@@ -687,6 +687,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             await update.message.reply_text(
                 f"📐 <b>Тооцоолол</b>\n\n{display}",
                 parse_mode=ParseMode.HTML,
+                reply_markup=share_menu_keyboard(display),
             )
             user_data["calc_tokens"] = []
             user_data["calc_active"] = False
@@ -985,7 +986,10 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         return
 
     try:
-        if rate_id.startswith("_f:"):
+        if rate_id.startswith("_t:"):
+            # Direct text share (e.g. calc results)
+            html_text = f"📐 <b>Тооцоолол</b>\n\n{rate_id[3:]}"
+        elif rate_id.startswith("_f:"):
             idx = int(rate_id.split(":")[1])
             formula_lines = await _build_formula_section()
             if idx < len(formula_lines):
