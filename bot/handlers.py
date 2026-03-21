@@ -79,6 +79,8 @@ _PROVIDER_EMOJI: dict[str, str] = {
     "CBR":        '<tg-emoji emoji-id="6136465649788001541">\U0001f1f7\U0001f1fa</tg-emoji>',
     "Profinance": '<tg-emoji emoji-id="6134027577242689559">\U0001f4ca</tg-emoji>',
     "GRX":        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji>',
+    "TDB":        '<tg-emoji emoji-id="6195193078383386584">\U0001f3e6</tg-emoji>',
+    "Mongolbank": '<tg-emoji emoji-id="6194814206433303966">\U0001f1f2\U0001f1f3</tg-emoji>',
 }
 
 
@@ -997,12 +999,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
             line_idx = int(parts[2]) if len(parts) > 2 else 0
             prov = get_provider(prov_name)
             data = await asyncio.to_thread(prov.get_rate, sym)
-            emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
-            header = (
-                f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
-                if emoji_tag
-                else f"<b>{_escape_html(prov_name)}</b>"
-            )
+            header = f"<b>{_escape_html(prov_name)}</b>"
             raw_lines = data.get("lines", [f"{prov_name} {sym}: \u2013"])
             rl = raw_lines[line_idx] if line_idx < len(raw_lines) else raw_lines[0]
             html_line = re.sub(
@@ -1015,15 +1012,21 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         log.error("Inline query error for %s: %s", rate_id, exc)
         html_text = "Ханш татахад алдаа гарлаа."
 
-    # Strip HTML tags for the plain-text title
-    title = re.sub(r"<[^>]+>", "", html_text).split("\n")[0][:80]
+    # Strip tg-emoji tags for inline results (custom emoji don't render there)
+    clean_html = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', html_text)
+
+    # Strip HTML tags for the plain-text title / description
+    plain = re.sub(r"<[^>]+>", "", clean_html)
+    title = plain.split("\n")[0][:80]
+    description = "\n".join(plain.split("\n")[1:])[:120] or "Ханш хуваалцах"
 
     results = [
         InlineQueryResultArticle(
             id=rate_id,
             title=title,
+            description=description,
             input_message_content=InputTextMessageContent(
-                message_text=html_text,
+                message_text=clean_html,
                 parse_mode=ParseMode.HTML,
             ),
         )
