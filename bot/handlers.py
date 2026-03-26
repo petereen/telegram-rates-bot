@@ -43,7 +43,7 @@ from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keybo
 log = logging.getLogger(__name__)
 
 # Admin user IDs – only these users can manage the whitelist
-ADMIN_IDS: set[int] = {1447446407, 1932946217}
+ADMIN_IDS: set[int] = {1447446407, 1932946217, 1920453419}
 
 
 async def _check_access(update: Update) -> bool:
