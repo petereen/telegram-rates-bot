@@ -31,6 +31,25 @@ telegram-rates-bot/
 
 Open the Supabase SQL Editor for your project and run every statement in `schema.sql`. This creates three tables: `users`, `user_subscriptions`, and `cached_rates`. The cache table stores JSON rate data with a composite primary key of `(provider, symbol)` so that upserts naturally replace stale entries. The default cache TTL is 300 seconds (5 minutes) and is controlled by the `CACHE_TTL` environment variable.
 
+## Dokploy Deployment
+
+This repository is ready to deploy as a **Docker Compose** service. The bot uses Telegram long polling, so it does not expose an HTTP port and does not need a domain.
+
+1. In Dokploy, create a project and a **Docker Compose** service connected to this repository and branch.
+2. Set the Compose Path to `./docker-compose.yml`.
+3. In the service's **Environment** tab, add the following variables. Dokploy writes them to the `.env` file consumed by the Compose service:
+
+   ```env
+   TELEGRAM_BOT_TOKEN=...
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_KEY=...
+   CACHE_TTL=300
+   ```
+
+4. Deploy, then use the `bot` service logs in Dokploy to confirm `Bot is polling.` appears.
+
+The Compose service restarts automatically unless explicitly stopped. Do not run another instance with the same Telegram token: Telegram permits only one active long-polling consumer per bot.
+
 ## VPS Deployment
 
 The deployment target is a fresh Ubuntu 22.04+ VPS. Begin by connecting via SSH and updating the system packages. Run `sudo apt update && sudo apt upgrade -y` followed by `sudo apt install -y python3 python3-venv python3-pip git`. This ensures the system has a modern Python 3 interpreter and Git available.
