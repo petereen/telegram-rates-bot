@@ -20,6 +20,7 @@ import providers.profinance  # noqa: F401
 import providers.boc       # noqa: F401
 import providers.rapira    # noqa: F401
 import providers.mongolbank  # noqa: F401
+import providers.capitronbank  # noqa: F401
 import providers.tdb       # noqa: F401
 
 

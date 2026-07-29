@@ -1,71 +1,85 @@
-"""
-providers.mongolbank – Mongol Bank (central bank) exchange rate provider.
+"""MongolBank exchange-rate provider.
 
-Uses the monxansh.appspot.com proxy for the MongolBank official rates:
-  GET https://monxansh.appspot.com/xansh.json?currency=USD|EUR|RUB|CNY|...
-
-Registered as a subscribable provider AND exposes
-``fetch_mongolbank_rub_rate()`` for formula calculations.
+Rates are obtained from the official MongolBank endpoint using the parsing
+logic from btseee/mongolian-bank-exchange-rate.  This replaces the retired
+``monxansh.appspot.com`` proxy and keeps the provider's public name and pair
+symbols stable for existing watchlists and cached rates.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
+from lxml import etree
 
 from providers.base import BaseProvider, register_provider
-from db.supabase_client import get_cached_rate, set_cached_rate
 
 log = logging.getLogger(__name__)
 
-_API_URL = "https://monxansh.appspot.com/xansh.json"
+_API_URL = "https://www.mongolbank.mn/en/currency-rate-movement/data"
 
 # Ulaanbaatar timezone (UTC+8)
 _UB_TZ = timezone(timedelta(hours=8))
 
-_ALL_PAIRS: dict[str, str] = {
-    "USD/MNT": "US Dollar ↔ Tögrög",
-    "EUR/MNT": "Euro ↔ Tögrög",
-    "RUB/MNT": "Рубль ↔ Tögrög",
-    "CNY/MNT": "Yuan ↔ Tögrög",
-    "GBP/MNT": "Pound ↔ Tögrög",
-    "JPY/MNT": "Yen ↔ Tögrög",
-    "KRW/MNT": "Won ↔ Tögrög",
-}
+_ALL_PAIRS: dict[str, str] = {"RUB/MNT": "Рубль ↔ Tögrög"}
 
-# Map our pair names to the currency code used by the API
 _PAIR_TO_CODE: dict[str, str] = {
-    "USD/MNT": "USD",
-    "EUR/MNT": "EUR",
     "RUB/MNT": "RUB",
-    "CNY/MNT": "CNY",
-    "GBP/MNT": "GBP",
-    "JPY/MNT": "JPY",
-    "KRW/MNT": "KRW",
 }
 
 
-def _fetch_from_api(currency_codes: str, retries: int = 3) -> list[dict]:
-    """Fetch rates for the given pipe-separated currency codes (with retries)."""
-    import time
-    last_exc: Exception | None = None
-    for attempt in range(retries):
-        try:
-            resp = requests.get(_API_URL, params={"currency": currency_codes}, timeout=15)
-            resp.raise_for_status()
-            body = resp.json()
-            if not body or not isinstance(body, list):
-                return []
-            return body
-        except (requests.RequestException, ValueError) as exc:
-            last_exc = exc
-            if attempt < retries - 1:
-                log.warning("MongolBank API attempt %d failed: %s", attempt + 1, exc)
-                time.sleep(1 * (attempt + 1))
-    raise last_exc  # type: ignore[misc]
+def _parse_rate(value: object) -> float | None:
+    """Convert the API's numeric strings, including comma-separated values."""
+    if value is None:
+        return None
+    try:
+        rate = float(str(value).strip().replace(",", "").replace(" ", ""))
+    except (TypeError, ValueError):
+        return None
+    return rate if rate else None
+
+
+def _parse_json(payload: object, rate_date: str) -> dict[str, float]:
+    """Extract ISO currency rates from the official endpoint's JSON response."""
+    if not isinstance(payload, dict):
+        return {}
+
+    for row in payload.get("data", []):
+        if not isinstance(row, dict) or row.get("RATE_DATE") != rate_date:
+            continue
+        return {
+            code: rate
+            for code, value in row.items()
+            if len(code) == 3 and code.isalpha() and (rate := _parse_rate(value)) is not None
+        }
+    return {}
+
+
+def _parse_xml(payload: str) -> dict[str, float]:
+    """Support the endpoint's legacy XML response as in the upstream crawler."""
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, recover=True)
+    root = etree.fromstring(payload.encode("utf-8"), parser)
+    rates: dict[str, float] = {}
+    for row in root.xpath("//Ccy"):
+        code = row.findtext("CcyNm_EN")
+        rate = _parse_rate(row.findtext("Rate"))
+        if code and rate is not None:
+            rates[code.upper()] = rate
+    return rates
+
+
+def _fetch_rates() -> dict[str, float]:
+    """Fetch all official MongolBank rates for the current Ulaanbaatar date."""
+    response = requests.post(_API_URL, timeout=15)
+    response.raise_for_status()
+    rate_date = datetime.now(_UB_TZ).date().isoformat()
+    try:
+        return _parse_json(response.json(), rate_date)
+    except ValueError:
+        return _parse_xml(response.text)
 
 
 @register_provider
@@ -79,30 +93,20 @@ class MongolBankProvider(BaseProvider):
             return {"lines": [f"MongolBank {symbol}: unsupported"]}
 
         try:
-            rows = _fetch_from_api(code)
-        except (requests.RequestException, ValueError) as exc:
+            rate = _fetch_rates().get(code)
+        except (requests.RequestException, ValueError, etree.XMLSyntaxError) as exc:
             log.error("MongolBank fetch error: %s", exc)
             return {"lines": [f"MongolBank {symbol}: fetch error"]}
 
-        for row in rows:
-            if row.get("code") == code:
-                rate = float(row["rate_float"])
-                line = f"MongolBank {symbol}: `{rate:.2f}`"
-                return {"lines": [line], "rate": rate}
+        if rate is None:
+            return {"lines": [f"MongolBank {symbol}: not found"]}
 
-        return {"lines": [f"MongolBank {symbol}: not found"]}
+        return {"lines": [f"MongolBank {symbol}: `{rate:.2f}`"], "rate": rate}
 
-
-# ── Legacy helper used by formula calculations ──────────────────────────
 
 def fetch_mongolbank_rub_rate() -> dict[str, Any]:
-    """Fetch the MongolBank RUB rate (MNT per 1 RUB).
-
-    Returns dict with 'rate' key on success, or 'error' key on failure.
-    Uses the provider cache.
-    """
-    provider = MongolBankProvider()
-    data = provider.get_rate("RUB/MNT")
+    """Fetch the MongolBank RUB rate (MNT per 1 RUB) using the provider cache."""
+    data = MongolBankProvider().get_rate("RUB/MNT")
     if "rate" in data:
         return {"rate": data["rate"]}
     return {"error": "RUB rate not found"}
