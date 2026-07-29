@@ -206,6 +206,55 @@ def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
     return data  # type: ignore[return-value]
 
 
+def get_daily_cached_rate(
+    provider: str,
+    symbol: str,
+    utc_offset_hours: int = 8,
+) -> dict[str, Any] | None:
+    """Return a cached payload only when it was stored on the local current day.
+
+    This is intended for daily-published bank rates.  It deliberately ignores
+    ``CACHE_TTL`` so the same daily snapshot can be served without refetching
+    on every /rates request.
+    """
+    local_tz = timezone(timedelta(hours=utc_offset_hours))
+    now = datetime.now(local_tz)
+    key = (provider, symbol)
+
+    if key in _mem_cache:
+        fetched_at, data = _mem_cache[key]
+        if (
+            fetched_at.astimezone(local_tz).date() == now.date()
+            and "rate" in data
+        ):
+            return data
+
+    sb = _get_client()
+    row = (
+        sb.table("cached_rates")
+        .select("rate_data, fetched_at")
+        .eq("provider", provider)
+        .eq("symbol", symbol)
+        .execute()
+    )
+    if not row.data:
+        return None
+
+    fetched_at = datetime.fromisoformat(row.data[0]["fetched_at"].replace("Z", "+00:00"))
+    if fetched_at.astimezone(local_tz).date() != now.date():
+        return None
+
+    data = row.data[0]["rate_data"]
+    if isinstance(data, str):
+        data = json.loads(data)
+    # A manual refresh can write an error payload through the generic cache
+    # path.  Error payloads must never satisfy the all-day MongolBank cache.
+    if not isinstance(data, dict) or "rate" not in data:
+        return None
+    _mem_cache[key] = (fetched_at, data)
+    return data  # type: ignore[return-value]
+
+
 def set_cached_rate(provider: str, symbol: str, rate_data: dict[str, Any]) -> None:
     """Upsert a rate into the cache (in-memory + Supabase)."""
     now = datetime.now(timezone.utc)

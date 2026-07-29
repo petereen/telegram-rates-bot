@@ -1,11 +1,8 @@
-"""
-providers.tdb – TDB Bank (Худалдаа Хөгжлийн Банк) exchange rate provider.
+"""TDB Bank (Худалдаа Хөгжлийн Банк) exchange-rate provider.
 
-Uses the community API at:
-  https://mongolian-bank-exchange-rate-6620c122ff22.herokuapp.com/rates/bank/TDBM
-
-Registered as a subscribable provider AND exposes
-``fetch_tdb_usd_noncash_sell()`` for formula calculations.
+The former community API is no longer deployed.  Rates are now parsed from
+TDB's live exchange-rates page using the static-table logic from
+btseee/mongolian-bank-exchange-rate.
 """
 
 from __future__ import annotations
@@ -14,16 +11,13 @@ import logging
 from typing import Any
 
 import requests
+from lxml import html
 
 from providers.base import BaseProvider, register_provider
-from db.supabase_client import get_cached_rate, set_cached_rate
 
 log = logging.getLogger(__name__)
 
-_API_URL = (
-    "https://mongolian-bank-exchange-rate-6620c122ff22.herokuapp.com"
-    "/rates/bank/TDBM"
-)
+_TDB_URL = "https://www.tdbm.mn/en/exchange-rates"
 
 _ALL_PAIRS: dict[str, str] = {
     "USD/MNT": "US Dollar ↔ Tögrög",
@@ -34,8 +28,7 @@ _ALL_PAIRS: dict[str, str] = {
     "JPY/MNT": "Yen ↔ Tögrög",
 }
 
-# Map our pair names to the key used in the API response ("rates" object)
-_PAIR_TO_KEY: dict[str, str] = {
+_PAIR_TO_KEY = {
     "USD/MNT": "usd",
     "EUR/MNT": "eur",
     "RUB/MNT": "rub",
@@ -45,14 +38,34 @@ _PAIR_TO_KEY: dict[str, str] = {
 }
 
 
-def _fetch_all_rates() -> dict[str, Any]:
-    """Fetch the full TDB rates payload (latest entry)."""
-    resp = requests.get(_API_URL, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    if not data or not isinstance(data, list):
-        return {}
-    return data[0]
+def _parse_rate(value: str) -> float | None:
+    try:
+        rate = float(value.strip().replace(",", "").replace("\xa0", ""))
+    except (AttributeError, ValueError):
+        return None
+    return rate if rate else None
+
+
+def _parse_html_table(page: str) -> dict[str, dict[str, float | None]]:
+    """Extract TDB's non-cash buy/sell columns from its current rate table."""
+    root = html.fromstring(page)
+    rows = root.xpath("//table[contains(@class, 'table-hover')]//tbody/tr")
+    rates: dict[str, dict[str, float | None]] = {}
+    for row in rows:
+        cells = [cell.text_content().strip() for cell in row.xpath("./td")]
+        if len(cells) < 8:
+            continue
+        code = cells[1].lower()
+        if len(code) != 3 or not code.isalpha():
+            continue
+        rates[code] = {"buy": _parse_rate(cells[4]), "sell": _parse_rate(cells[5])}
+    return rates
+
+
+def _fetch_all_rates() -> dict[str, dict[str, float | None]]:
+    response = requests.get(_TDB_URL, timeout=15)
+    response.raise_for_status()
+    return _parse_html_table(response.text)
 
 
 @register_provider
@@ -61,48 +74,39 @@ class TDBProvider(BaseProvider):
     PAIRS = _ALL_PAIRS
 
     def fetch(self, symbol: str) -> dict[str, Any]:
-        key = _PAIR_TO_KEY.get(symbol)
-        if key is None:
+        code = _PAIR_TO_KEY.get(symbol)
+        if code is None:
             return {"lines": [f"TDB {symbol}: unsupported"]}
 
         try:
-            latest = _fetch_all_rates()
+            rate = _fetch_all_rates().get(code, {})
         except (requests.RequestException, ValueError) as exc:
             log.error("TDB Bank fetch error: %s", exc)
             return {"lines": [f"TDB {symbol}: fetch error"]}
 
-        rates = latest.get("rates", {})
-        ccy = rates.get(key, {})
-
-        noncash = ccy.get("noncash", {})
-
-        nc_buy = noncash.get("buy")
-        nc_sell = noncash.get("sell")
-
-        lines: list[str] = []
-        if nc_buy is not None and nc_sell is not None:
-            lines.append(f"TDB {symbol} Buy:  `{float(nc_buy):.2f}`")
-            lines.append(f"TDB {symbol} Sell: `{float(nc_sell):.2f}`")
-
-        if not lines:
+        buy = rate.get("buy")
+        sell = rate.get("sell")
+        if buy is None and sell is None:
             return {"lines": [f"TDB {symbol}: not found"]}
 
+        lines: list[str] = []
+        if buy is not None:
+            lines.append(f"TDB {symbol} Buy:  `{buy:.2f}`")
+        if sell is not None:
+            lines.append(f"TDB {symbol} Sell: `{sell:.2f}`")
+
         result: dict[str, Any] = {"lines": lines}
-        if nc_sell is not None:
-            result["rate"] = float(nc_sell)
+        if buy is not None:
+            result["buy"] = buy
+        if sell is not None:
+            result["sell"] = sell
+            result["rate"] = sell
         return result
 
 
-# ── Legacy helper used by formula calculations ──────────────────────────
-
 def fetch_tdb_usd_noncash_sell() -> dict[str, Any]:
-    """Fetch the TDB Bank non-cash USD selling rate (MNT per 1 USD).
-
-    Returns dict with 'rate' key on success, or 'error' key on failure.
-    Uses the provider cache.
-    """
-    provider = TDBProvider()
-    data = provider.get_rate("USD/MNT")
+    """Fetch TDB's non-cash USD selling rate (MNT per 1 USD)."""
+    data = TDBProvider().get_rate("USD/MNT")
     if "rate" in data:
         return {"rate": data["rate"]}
     return {"error": "USD noncash sell rate not found"}
