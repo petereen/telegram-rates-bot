@@ -492,6 +492,10 @@ function CalculatorPage({
 }: CalculatorPageProps) {
   const [tokens, setTokens] = useState<Array<string | number>>([]);
   const [picker, setPicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<RateSnapshot[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchSequence = useRef(0);
   const [result, setResult] = useState<{
     expression: string;
     result: string;
@@ -539,12 +543,48 @@ function CalculatorPage({
     }
   };
 
+  const closePicker = () => {
+    setPicker(false);
+    setSearchQuery("");
+    setSearchResults(null);
+    setSearching(false);
+  };
+
   const chooseRate = (amount: string) => {
     setTokens((current) => [...current, amount]);
     setResult(null);
-    setPicker(false);
+    closePicker();
     haptic();
   };
+
+  useEffect(() => {
+    if (!picker) return;
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+
+    const sequence = ++searchSequence.current;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void api.searchRates(query)
+        .then((data) => {
+          if (sequence === searchSequence.current) setSearchResults(data.rates);
+        })
+        .catch(() => {
+          if (sequence === searchSequence.current) setSearchResults([]);
+        })
+        .finally(() => {
+          if (sequence === searchSequence.current) setSearching(false);
+        });
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [picker, searchQuery]);
+
+  const pickerRates = searchQuery.trim() ? searchResults || [] : availableRates;
 
   return (
     <div className="page calculator-page">
@@ -625,7 +665,7 @@ function CalculatorPage({
         )}
       </section>
       {picker && (
-        <div className="sheet-backdrop" onMouseDown={() => setPicker(false)}>
+        <div className="sheet-backdrop" onMouseDown={closePicker}>
           <section
             className="sheet rate-picker-sheet"
             onMouseDown={(event) => event.stopPropagation()}
@@ -636,12 +676,37 @@ function CalculatorPage({
                 <span className="eyebrow">ОРЛУУЛАХ УТГА</span>
                 <h2>Ханш сонгох</h2>
               </div>
-              <button className="icon-button" onClick={() => setPicker(false)}>
+              <button className="icon-button" onClick={closePicker} aria-label="Хаах">
                 <X size={20} />
               </button>
             </header>
+            <div className="picker-search">
+              <Search size={17} />
+              <input
+                autoFocus
+                value={searchQuery}
+                placeholder="Бүх эх сурвалжаас хайх"
+                onChange={(event) => setSearchQuery(event.target.value)}
+                aria-label="Ханш хайх"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="picker-search-clear"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Хайлтыг цэвэрлэх"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+            <p className="picker-caption">
+              {searchQuery.trim() ? "Бүх эх сурвалж" : "Миний хадгалсан ханш"}
+            </p>
             <div className="picker-list">
-              {availableRates
+              {searching ? (
+                <p className="picker-empty">Хайж байна…</p>
+              ) : pickerRates
                 .filter((rate) => rate.values.length)
                 .map((rate) => (
                   <div className="picker-row" key={rate.key}>
@@ -670,6 +735,14 @@ function CalculatorPage({
                     </div>
                   </div>
                 ))}
+              {!searching &&
+                !pickerRates.some((rate) => rate.values.length) && (
+                  <p className="picker-empty">
+                    {searchQuery.trim()
+                      ? "Тохирох ханш олдсонгүй"
+                      : "Хадгалсан ханш алга. Дээрх хайлтаар бүх эх сурвалжаас хайна уу."}
+                  </p>
+                )}
             </div>
           </section>
         </div>
@@ -1602,8 +1675,6 @@ export default function App() {
   }
 
   const activeRates = tab === "calculated" ? calculated : rates;
-  const allAvailable = [...rates, ...calculated];
-
   return (
     <div className="app-shell">
       <aside className="desktop-rail">
@@ -1710,7 +1781,7 @@ export default function App() {
         )}
         {tab === "calculator" && (
           <CalculatorPage
-            availableRates={allAvailable}
+            availableRates={rates}
             onShare={(tokens, mode) => void doShare([], tokens, mode)}
             notify={notify}
             sourceLogos={branding.sourceLogos}

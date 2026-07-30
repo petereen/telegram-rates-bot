@@ -36,6 +36,11 @@ class MongolianBankProviderTests(unittest.TestCase):
         self.assertNotIn("TDB", visible)
         self.assertEqual(get_provider("TDB").NAME, "TDB")
 
+    def test_mongolbank_uses_official_provider(self) -> None:
+        provider = get_provider("MongolBank")
+        self.assertEqual(provider.__class__.__module__, "providers.mongolbank")
+        self.assertEqual(provider.PAIRS, {"RUB/MNT": "Рубль ↔ Tögrög"})
+
     @patch("providers.mongolian_banks.requests.get")
     def test_normalizes_cash_and_noncash_rates(self, request_get: Mock) -> None:
         response = Mock()

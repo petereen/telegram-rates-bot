@@ -39,7 +39,6 @@ _BANKS: tuple[tuple[str, str], ...] = (
     ("XacBank", "Хас Банк"),
     ("ArigBank", "Ариг Банк"),
     ("StateBank", "Төрийн Банк"),
-    ("MongolBank", "Монгол Банк"),
     ("CapitronBank", "Капитрон Банк"),
     ("NaimanSharga", "Найман Шарга"),
     ("SendMN", "SendMN"),

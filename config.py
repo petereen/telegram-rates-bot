@@ -29,10 +29,9 @@ SESSION_COOKIE_SECURE: bool = os.getenv("SESSION_COOKIE_SECURE", "true").lower()
 # recently opened webview. Keep the replay window bounded but practical.
 AUTH_MAX_AGE: int = int(os.getenv("AUTH_MAX_AGE", "86400"))
 
-# Self-hosted instance of btseee/mongolian-bank-exchange-rate. The upstream
-# project's former public Heroku deployment is retained as a compatibility
-# default, but production deployments should set this to their own API.
+# Instance of btseee/mongolian-bank-exchange-rate used for commercial-bank
+# rates. MongolBank itself is fetched from the official BOM endpoint.
 MONGOLIAN_BANK_API_URL: str = os.getenv(
     "MONGOLIAN_BANK_API_URL",
-    "https://mongolian-bank-exchange-rate-6620c122ff22.herokuapp.com",
+    "https://bank-api.oyuns.mn",
 ).rstrip("/")

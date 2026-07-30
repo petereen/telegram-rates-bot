@@ -16,6 +16,8 @@ def register_all_providers() -> None:
     import providers.rapira  # noqa: F401
     import providers.tdb  # noqa: F401
     import providers.xe  # noqa: F401
-    # Import last so the normalized upstream API implementations replace the
-    # older one-off MongolBank and CapitronBank registrations.
+    # Import last so normalized upstream API implementations replace the
+    # older one-off CapitronBank registration. MongolBank is intentionally
+    # excluded from that module because its official provider uses the BOM
+    # endpoint and the community API does not currently publish a snapshot.
     import providers.mongolian_banks  # noqa: F401
