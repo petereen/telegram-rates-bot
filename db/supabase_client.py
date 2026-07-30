@@ -23,11 +23,12 @@ from typing import Any
 
 from supabase import create_client, Client
 
-from config import SUPABASE_URL, SUPABASE_KEY, CACHE_TTL
+from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_STORAGE_KEY, CACHE_TTL
 
 log = logging.getLogger(__name__)
 
 _client: Client | None = None
+_storage_client: Client | None = None
 
 
 def _get_client() -> Client:
@@ -35,6 +36,13 @@ def _get_client() -> Client:
     if _client is None:
         _client = create_client(SUPABASE_URL, SUPABASE_KEY)
     return _client
+
+
+def _get_storage_client() -> Client:
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = create_client(SUPABASE_URL, SUPABASE_STORAGE_KEY)
+    return _storage_client
 
 
 # ── Users ──────────────────────────────────────────────────────────────
@@ -425,7 +433,7 @@ def soft_delete_formula_definition(formula_id: str) -> bool:
 def _public_branding_url(path: str | None) -> str | None:
     if not path:
         return None
-    return _get_client().storage.from_("branding").get_public_url(path)
+    return _get_storage_client().storage.from_("branding").get_public_url(path)
 
 
 def get_branding() -> dict[str, Any]:
@@ -504,12 +512,12 @@ def set_branding_path(path: str | None, provider: str | None = None) -> None:
 
 
 def upload_branding_asset(path: str, content: bytes) -> None:
-    _get_client().storage.from_("branding").upload(
+    _get_storage_client().storage.from_("branding").upload(
         path,
         content,
-        file_options={"content-type": "image/webp", "upsert": "true"},
+        file_options={"content-type": "image/webp"},
     )
 
 
 def delete_branding_asset(path: str) -> None:
-    _get_client().storage.from_("branding").remove([path])
+    _get_storage_client().storage.from_("branding").remove([path])

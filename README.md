@@ -44,8 +44,10 @@ Open the Supabase SQL Editor and run every statement in `schema.sql`. This
 creates the user, subscription, whitelist, cache, short-lived share-bundle,
 global formula, and branding tables, seeds the three original formulas, and
 creates the public `branding` Storage bucket. Existing subscription and cache
-keys remain unchanged. The backend `SUPABASE_KEY` must be allowed to upload and
-delete Storage objects; never expose that key to the browser.
+keys remain unchanged. A public bucket only permits public reads: the backend
+must use a service-role/storage-capable key for uploads and deletes. Set
+`SUPABASE_STORAGE_KEY` to that key if `SUPABASE_KEY` is an anon/public key;
+never expose either backend key to the browser.
 
 ## Dokploy Deployment
 
@@ -65,6 +67,7 @@ built React application. Attach an HTTPS domain to the `web` service on port
    TELEGRAM_OIDC_CLIENT_SECRET=...
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_KEY=...
+   SUPABASE_STORAGE_KEY=...
    CACHE_TTL=300
    APP_BASE_URL=https://rates.example.com
    SESSION_SECRET=replace-with-a-long-random-value

@@ -85,9 +85,17 @@ def _parse_xml(payload: str) -> dict[str, float]:
 
 def _fetch_official_rates() -> dict[str, float]:
     """Fetch rates from the official MongolBank endpoint."""
-    response = requests.post(_API_URL, timeout=(5, 10))
-    response.raise_for_status()
     rate_date = datetime.now(_UB_TZ).date().isoformat()
+    response = requests.post(
+        _API_URL,
+        json={"startDate": "2001-01-01", "endDate": rate_date},
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        timeout=(5, 10),
+    )
+    response.raise_for_status()
     try:
         return _parse_json(response.json(), rate_date)
     except ValueError:

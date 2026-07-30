@@ -17,6 +17,9 @@ TELEGRAM_OIDC_CLIENT_SECRET: str = os.getenv("TELEGRAM_OIDC_CLIENT_SECRET", "")
 
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
+# Storage can use a separate service-role key when SUPABASE_KEY is the public
+# anon key used for database requests.
+SUPABASE_STORAGE_KEY: str = os.getenv("SUPABASE_STORAGE_KEY", SUPABASE_KEY)
 
 CACHE_TTL: int = int(os.getenv("CACHE_TTL", "300"))
 APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
