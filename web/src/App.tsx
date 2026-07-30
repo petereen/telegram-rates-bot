@@ -1749,7 +1749,7 @@ export default function App() {
       <main className="login-page">
         <div className="login-rule" />
         <span className="eyebrow">OYUNS ALL-IN-ONE EXCHANGE LEDGER</span>
-        <h1>Илүү хялбар..<br />Илүү ойлгомжтой.</h1>
+        <h1>Илүү хялбар.<br />Илүү хурдан.</h1>
         <p>API түлхүүр оруулна уу.</p>
         {!isBrowserLogin ? (
           <form className="api-key-form" onSubmit={submitApiKey}>

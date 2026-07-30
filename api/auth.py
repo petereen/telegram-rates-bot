@@ -23,6 +23,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from config import (
     APP_BASE_URL,
     APP_API_KEY,
+    API_KEY_ALIAS,
     AUTH_MAX_AGE,
     SESSION_COOKIE_SECURE,
     SESSION_SECRET,
@@ -117,9 +118,14 @@ def _set_session(response: Response, user: AuthUser) -> None:
 
 def validate_api_key(api_key: str) -> None:
     """Validate the shared app key without leaking it in logs or responses."""
-    if not APP_API_KEY:
+    configured_keys = tuple(key for key in (APP_API_KEY, API_KEY_ALIAS) if key)
+    if not configured_keys:
         raise HTTPException(status_code=503, detail="APP_API_KEY тохируулаагүй")
-    if not api_key or not hmac.compare_digest(api_key, APP_API_KEY):
+    submitted_key = api_key.strip() if api_key else ""
+    if not submitted_key or not any(
+        hmac.compare_digest(submitted_key, configured_key)
+        for configured_key in configured_keys
+    ):
         raise HTTPException(status_code=401, detail="API key буруу")
 
 

@@ -55,9 +55,11 @@ class MiniAppAuthTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             validate_mini_app_data(data, max_age=60)
 
+    @patch("api.auth.API_KEY_ALIAS", "alias-api-key")
     @patch("api.auth.APP_API_KEY", "test-api-key")
     def test_api_key_is_required(self) -> None:
         validate_api_key("test-api-key")
+        validate_api_key("alias-api-key")
         with self.assertRaises(HTTPException):
             validate_api_key("wrong-key")
 
