@@ -28,7 +28,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ApiError, api, setAccessToken } from "./api";
+import type { FormEvent } from "react";
+import { api, setAccessToken } from "./api";
 import {
   getTelegramInitData,
   getTelegramWebApp,
@@ -1268,7 +1269,7 @@ function SettingsPage({
             <strong>{user.firstName || "Telegram хэрэглэгч"}</strong>
             <span>@{user.username || user.telegramId}</span>
           </div>
-          <span className="access-badge">WHITELIST</span>
+          <span className="access-badge">API KEY</span>
         </div>
       </section>
       <section className="settings-section">
@@ -1307,7 +1308,7 @@ function SettingsPage({
         {brandingOpen && (
           <div className="branding-manager">
             <p>
-              Энд хийсэн өөрчлөлт whitelist-д байгаа бүх хэрэглэгчид харагдана.
+              Энд хийсэн өөрчлөлт API key-ээр нэвтэрсэн бүх хэрэглэгчид харагдана.
             </p>
             <div className="branding-row">
               <BrandMark src={branding.appLogoUrl} className="branding-preview" />
@@ -1420,7 +1421,7 @@ function SettingsPage({
 
 export default function App() {
   const [authState, setAuthState] = useState<
-    "loading" | "ready" | "login" | "denied" | "telegram-error"
+    "loading" | "ready" | "api-key" | "telegram-login" | "telegram-error"
   >("loading");
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState<TabId>("rates");
@@ -1442,6 +1443,9 @@ export default function App() {
   const [calculatedLoaded, setCalculatedLoaded] = useState(false);
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const [telegramError, setTelegramError] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [theme, setTheme] = useState<ThemeChoice>(
     () => (localStorage.getItem("rates-theme") as ThemeChoice) || "system",
   );
@@ -1484,6 +1488,21 @@ export default function App() {
     }
   }, [beginDataLoading]);
 
+  const finishLogin = useCallback(
+    (session: { user: User; accessToken?: string }) => {
+      if (session.accessToken) setAccessToken(session.accessToken);
+      setUser(session.user);
+      setAuthState("ready");
+      void Promise.all([loadReferenceData(), loadRates()]).catch((error) =>
+        notify(
+          error instanceof Error ? error.message : "Өгөгдөл ачаалахад алдаа гарлаа",
+          true,
+        ),
+      );
+    },
+    [loadRates, loadReferenceData, notify],
+  );
+
   const loadCalculated = useCallback(async () => {
     const finishLoading = beginDataLoading();
     try {
@@ -1497,20 +1516,19 @@ export default function App() {
 
   const bootstrap = useCallback(async () => {
     const initData = getTelegramInitData();
+    if (initData) {
+      setAuthState("api-key");
+      return;
+    }
+    if (isTelegramLaunch()) {
+      // A real Mini App must provide signed launch data. Do not silently
+      // fall back to browser OIDC when its BotFather launch is misconfigured.
+      setAuthState("telegram-error");
+      return;
+    }
     try {
-      if (initData) {
-        const session = await api.miniAppLogin(initData);
-        setAccessToken(session.accessToken);
-        setUser(session.user);
-      } else if (isTelegramLaunch()) {
-        // A real Mini App must provide signed launch data. Do not silently
-        // fall back to browser OIDC when its BotFather launch is misconfigured.
-        setAuthState("telegram-error");
-        return;
-      } else {
-        const session = await api.me();
-        setUser(session.user);
-      }
+      const session = await api.me();
+      setUser(session.user);
       setAuthState("ready");
       // Authentication is enough to enter the shell. Loading formulas can
       // involve external rate providers, so keep that work out of startup.
@@ -1526,13 +1544,36 @@ export default function App() {
           error instanceof Error ? error.message : "Telegram нэвтрэхэд алдаа гарлаа",
         );
         setAuthState("telegram-error");
-      } else if (error instanceof ApiError && error.status === 403) {
-        setAuthState("denied");
       } else {
-        setAuthState("login");
+        setAuthState("api-key");
       }
     }
   }, [loadRates, loadReferenceData, notify]);
+
+  const submitApiKey = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      setAuthSubmitting(true);
+      setAuthError("");
+      try {
+        const initData = getTelegramInitData();
+        if (initData) {
+          const session = await api.miniAppLogin(initData, apiKey.trim());
+          finishLogin(session);
+        } else {
+          await api.apiKeyLogin(apiKey.trim());
+          setAuthState("telegram-login");
+        }
+      } catch (error) {
+        setAuthError(
+          error instanceof Error ? error.message : "API key шалгахад алдаа гарлаа",
+        );
+      } finally {
+        setAuthSubmitting(false);
+      }
+    },
+    [apiKey, finishLogin],
+  );
 
   useEffect(() => {
     void bootstrap();
@@ -1699,28 +1740,42 @@ export default function App() {
     );
   }
 
-  if (authState === "login") {
+  if (authState === "api-key" || authState === "telegram-login") {
+    const isBrowserLogin = authState === "telegram-login";
     return (
       <main className="login-page">
         <div className="login-rule" />
         <span className="eyebrow">OYUNS · EXCHANGE LEDGER</span>
         <h1>Ханш нэг дор.<br />Илүү ойлгомжтой.</h1>
         <p>Хадгалсан болон тооцоолсон ханшаа харах, тооцоолох, Telegram чат руу цэгцтэй хуваалцах.</p>
-        <a className="telegram-login" href="/api/auth/telegram/start">
-          <Send size={19} />
-          Telegram-аар нэвтрэх
-        </a>
-        <small>Зөвхөн whitelist-д бүртгэлтэй хэрэглэгч нэвтэрнэ.</small>
-      </main>
-    );
-  }
-
-  if (authState === "denied") {
-    return (
-      <main className="center-state denied">
-        <div className="brand-mark">!</div>
-        <h1>Хандах эрхгүй</h1>
-        <p>Таны Telegram бүртгэл whitelist-д байхгүй байна.</p>
+        {!isBrowserLogin ? (
+          <form className="api-key-form" onSubmit={submitApiKey}>
+            <label htmlFor="app-api-key">API key</label>
+            <input
+              id="app-api-key"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="API key оруулна уу"
+              autoComplete="current-password"
+              autoFocus
+            />
+            <button className="primary-button" type="submit" disabled={authSubmitting || !apiKey.trim()}>
+              {authSubmitting ? "Шалгаж байна…" : "Нэвтрэх"}
+            </button>
+          </form>
+        ) : (
+          <a className="telegram-login" href="/api/auth/telegram/start">
+            <Send size={19} />
+            Telegram-аар нэвтрэх
+          </a>
+        )}
+        {authError && <p className="auth-error">{authError}</p>}
+        <small>
+          {isBrowserLogin
+            ? "API key зөв. Telegram бүртгэлээр үргэлжлүүлнэ үү."
+            : "Апп ашиглахын тулд API key шаардлагатай."}
+        </small>
       </main>
     );
   }
@@ -1873,7 +1928,7 @@ export default function App() {
               void api.logout().then(() => {
                 setAccessToken(null);
                 setUser(null);
-                setAuthState("login");
+                setAuthState("api-key");
               });
             }}
           />

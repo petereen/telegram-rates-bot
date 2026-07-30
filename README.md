@@ -6,8 +6,9 @@ The backend uses **python-telegram-bot**, **FastAPI**, and **Supabase**; the
 frontend uses **React**, **TypeScript**, and **Vite**.
 
 The Mini App and browser UI share four sections: **Ханш**, **Тооцоолсон**,
-**Тооны машин**, and **Тохиргоо**. Whitelisted users can globally manage
-calculated formulas from **Тооцоолсон** and app/source logos from
+**Тооны машин**, and **Тохиргоо**. Users enter with the shared `APP_API_KEY`,
+then authenticate their Telegram identity. Authenticated users can globally
+manage calculated formulas from **Тооцоолсон** and app/source logos from
 **Тохиргоо**. Existing bot commands remain available.
 
 ## Project Structure
@@ -41,7 +42,7 @@ telegram-rates-bot/
 ## Supabase Setup
 
 Open the Supabase SQL Editor and run every statement in `schema.sql`. This
-creates the user, subscription, whitelist, cache, short-lived share-bundle,
+creates the user, subscription, bot whitelist, cache, short-lived share-bundle,
 global formula, and branding tables, seeds the three original formulas, and
 creates the public `branding` Storage bucket. Existing subscription and cache
 keys remain unchanged. A public bucket only permits public reads: the backend
@@ -65,6 +66,7 @@ built React application. Attach an HTTPS domain to the `web` service on port
    TELEGRAM_APP_SHORT_NAME=rates
    TELEGRAM_OIDC_CLIENT_ID=...
    TELEGRAM_OIDC_CLIENT_SECRET=...
+   APP_API_KEY=...
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_KEY=...
    SUPABASE_STORAGE_KEY=...
@@ -123,7 +125,7 @@ Clone the repository into the deployment directory. Run `sudo mkdir -p /opt/tele
 
 Create a Python virtual environment inside the project directory. Run `cd /opt/telegram-rates-bot && python3 -m venv venv && source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt`. The virtual environment isolates dependencies from the system Python, preventing version conflicts with other applications on the same server.
 
-Copy the example environment file and fill in real credentials. Run `cp .env.example .env && nano .env`. You must provide values for `TELEGRAM_BOT_TOKEN` (obtained from @BotFather on Telegram), `SUPABASE_URL` and `SUPABASE_KEY` (from the Supabase project dashboard under Settings > API), and optionally `XE_ACCOUNT_ID` plus `XE_API_KEY` if you have an XE API subscription. Save the file and exit the editor. Ensure the file permissions are restrictive: `chmod 600 .env` so only botuser can read the secrets.
+Copy the example environment file and fill in real credentials. Run `cp .env.example .env && nano .env`. You must provide values for `TELEGRAM_BOT_TOKEN` (obtained from @BotFather on Telegram), `APP_API_KEY`, `SUPABASE_URL` and `SUPABASE_KEY` (from the Supabase project dashboard under Settings > API), and optionally `XE_ACCOUNT_ID` plus `XE_API_KEY` if you have an XE API subscription. Save the file and exit the editor. Ensure the file permissions are restrictive: `chmod 600 .env` so only botuser can read the secrets.
 
 Install the systemd service file. Switch back to a privileged user (`exit` from the botuser shell) and run `sudo cp /opt/telegram-rates-bot/bot.service /etc/systemd/system/telegram-rates-bot.service`. Then reload the systemd daemon with `sudo systemctl daemon-reload`. Enable the service so it starts automatically on boot: `sudo systemctl enable telegram-rates-bot`. Finally, start it: `sudo systemctl start telegram-rates-bot`.
 
@@ -158,3 +160,7 @@ result. The same expression can be entered in Telegram inline mode
 (`@your_bot …`), where its result is shown before the message is sent. For a
 rate with several values, add the displayed field name with spaces and hyphens
 replaced by underscores.
+
+Opening inline mode without a query shows the user's saved-rate shortlist.
+Each choice displays its exact calculator alias; sending it posts a clean rate
+card with a button that reopens inline mode with that alias prefilled.

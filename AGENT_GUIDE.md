@@ -2,10 +2,10 @@
 
 ## Purpose
 
-This private Telegram bot lets whitelisted users maintain a personal watchlist
-of exchange/crypto pairs, retrieve rates from multiple sources, and calculate
-with displayed rates. User-facing text is mostly Mongolian; preserve it unless
-a copy change is explicitly requested.
+This private Telegram bot and API-key-gated Mini App let users maintain a
+personal watchlist of exchange/crypto pairs, retrieve rates from multiple
+sources, and calculate with displayed rates. User-facing text is mostly
+Mongolian; preserve it unless a copy change is explicitly requested.
 
 ## Runtime flow
 
@@ -52,15 +52,17 @@ Telegram command/button
 
 ## Access and stored data
 
-All regular commands call `_check_access()`: a user must exist in the Supabase
-`whitelist` table. `ADMIN_IDS` is a hard-coded set allowed to use hidden
-whitelist commands: `/wl_add <id>`, `/wl_remove <id>`, `/wl_list`.
+The web app requires `APP_API_KEY` before it accepts Telegram Mini App or OIDC
+identity data. The API key is checked only at login; authenticated sessions and
+short-lived access tokens carry the resulting identity. The Telegram bot still
+uses its separate Supabase `whitelist` table and hidden commands
+`/wl_add <id>`, `/wl_remove <id>`, `/wl_list`.
 
 Supabase tables:
 
 - `users`: Telegram ID, username, creation time.
 - `user_subscriptions`: user watchlist entries `(provider, symbol)`.
-- `whitelist`: permitted Telegram IDs.
+- `whitelist`: permitted Telegram bot IDs (the web app does not consult it).
 - `cached_rates`: cached payload by `(provider, symbol)`.
 - `share_bundles`: short-lived owner-bound browser sharing state.
 
@@ -104,7 +106,7 @@ Each rate message has:
 ## Calculated rates
 
 Calculated formulas are global rows in `calculated_formulas`. The schema seeds
-the following defaults, and whitelisted users can add, edit, reorder, disable,
+the following defaults, and API-key-authenticated users can add, edit, reorder, disable,
 or remove formulas in the Mini App. The bot and web API fetch distinct formula
 inputs in parallel. `/calc` initially displays:
 

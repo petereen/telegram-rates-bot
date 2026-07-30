@@ -17,12 +17,15 @@ from telegram.constants import ParseMode
 
 from api.auth import (
     OIDC_COOKIE,
+    API_KEY_COOKIE,
     AuthUser,
+    establish_api_key_login,
     current_user,
     establish_session,
     issue_access_token,
     oidc_callback_response,
     oidc_login_response,
+    validate_api_key,
     validate_mini_app_data,
 )
 from config import (
@@ -74,6 +77,11 @@ bot = Bot(TELEGRAM_BOT_TOKEN)
 
 class MiniAppLogin(BaseModel):
     init_data: str = Field(alias="initData")
+    api_key: str = Field(alias="apiKey")
+
+
+class ApiKeyLogin(BaseModel):
+    api_key: str = Field(alias="apiKey")
 
 
 class SubscriptionInput(BaseModel):
@@ -118,14 +126,21 @@ async def health() -> dict[str, str]:
 
 @app.post("/api/auth/mini-app")
 async def mini_app_login(payload: MiniAppLogin, response: Response) -> dict[str, Any]:
+    await asyncio.to_thread(validate_api_key, payload.api_key)
     user = await asyncio.to_thread(validate_mini_app_data, payload.init_data)
     user = await asyncio.to_thread(establish_session, response, user)
     return {"user": user.to_dict(), "accessToken": issue_access_token(user)}
 
 
+@app.post("/api/auth/key")
+async def api_key_login(payload: ApiKeyLogin, response: Response) -> dict[str, bool]:
+    await asyncio.to_thread(establish_api_key_login, response, payload.api_key)
+    return {"ok": True}
+
+
 @app.get("/api/auth/telegram/start")
-async def telegram_login() -> Response:
-    return oidc_login_response()
+async def telegram_login(request: Request) -> Response:
+    return oidc_login_response(request.cookies.get(API_KEY_COOKIE))
 
 
 @app.get("/api/auth/telegram/callback")
@@ -135,7 +150,10 @@ async def telegram_callback(
     state: str = Query(...),
 ) -> Response:
     return await oidc_callback_response(
-        code, state, request.cookies.get(OIDC_COOKIE)
+        code,
+        state,
+        request.cookies.get(OIDC_COOKIE),
+        request.cookies.get(API_KEY_COOKIE),
     )
 
 

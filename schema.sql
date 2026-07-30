@@ -19,7 +19,7 @@ create table if not exists public.user_subscriptions (
 
 create index if not exists idx_subs_user on public.user_subscriptions(telegram_id);
 
--- 3. Whitelist table
+-- 3. Telegram bot whitelist table. The web app uses APP_API_KEY instead.
 create table if not exists public.whitelist (
     telegram_id  bigint       primary key,
     added_at     timestamptz  not null default now()

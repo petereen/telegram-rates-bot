@@ -72,10 +72,15 @@ async function request<T>(
 }
 
 export const api = {
-  miniAppLogin: (initData: string) =>
+  miniAppLogin: (initData: string, apiKey: string) =>
     request<{ user: User; accessToken: string }>("/api/auth/mini-app", {
       method: "POST",
-      body: JSON.stringify({ initData }),
+      body: JSON.stringify({ initData, apiKey }),
+    }, AUTH_REQUEST_TIMEOUT_MS),
+  apiKeyLogin: (apiKey: string) =>
+    request<{ ok: boolean }>("/api/auth/key", {
+      method: "POST",
+      body: JSON.stringify({ apiKey }),
     }, AUTH_REQUEST_TIMEOUT_MS),
   me: () => request<{ user: User }>("/api/me", {}, AUTH_REQUEST_TIMEOUT_MS),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),

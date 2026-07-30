@@ -27,6 +27,7 @@ class RateReference:
 class ShortlistCalculation:
     expression: str
     result: str
+    resolved_expression: str
 
 
 # A reference is deliberately explicit.  A pair alone is not enough because a
@@ -122,6 +123,20 @@ def _select_value(reference: RateReference, snapshot: RateSnapshot) -> tuple[str
     return value.amount, label
 
 
+def _display_reference(reference: str) -> str:
+    provider, symbol, field = reference.split(":", 2)
+    field_label = {
+        "value": "ханш",
+        "buy": "авах",
+        "sell": "зарах",
+        "cash_buy": "бэлэн авах",
+        "cash_sell": "бэлэн зарах",
+        "non_cash_buy": "бэлэн бус авах",
+        "non_cash_sell": "бэлэн бус зарах",
+    }.get(field, field.replace("_", " "))
+    return f"{provider} · {symbol} ({field_label})"
+
+
 async def calculate_shortlist_expression(
     telegram_id: int, text: str
 ) -> ShortlistCalculation:
@@ -149,17 +164,25 @@ async def calculate_shortlist_expression(
 
     calculator_tokens: list[str] = []
     display_tokens: list[str] = []
+    resolved_tokens: list[str] = []
     for token in parsed:
         if isinstance(token, RateReference):
             amount, label = resolved[token]
             calculator_tokens.append(amount)
-            display_tokens.append(label)
+            display_tokens.append(_display_reference(label))
+            resolved_tokens.append(amount)
         else:
             calculator_tokens.append(token)
-            display_tokens.append({"*": "×", "/": "÷"}.get(token, token))
+            displayed_token = {"*": "×", "/": "÷"}.get(token, token)
+            display_tokens.append(displayed_token)
+            resolved_tokens.append(displayed_token)
 
     try:
         calculation = evaluate_tokens(calculator_tokens)
     except CalculationError as exc:
         raise ShortlistCalculationError(str(exc)) from exc
-    return ShortlistCalculation(" ".join(display_tokens), calculation["result"])
+    return ShortlistCalculation(
+        expression=" ".join(display_tokens),
+        result=calculation["result"],
+        resolved_expression=" ".join(resolved_tokens),
+    )

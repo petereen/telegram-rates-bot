@@ -13,6 +13,7 @@ from api.auth import (
     AuthUser,
     current_user,
     issue_access_token,
+    validate_api_key,
     validate_mini_app_data,
 )
 
@@ -54,8 +55,13 @@ class MiniAppAuthTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             validate_mini_app_data(data, max_age=60)
 
-    @patch("api.auth.is_whitelisted", return_value=True)
-    def test_mini_app_access_token_authenticates_requests(self, _whitelist) -> None:
+    @patch("api.auth.APP_API_KEY", "test-api-key")
+    def test_api_key_is_required(self) -> None:
+        validate_api_key("test-api-key")
+        with self.assertRaises(HTTPException):
+            validate_api_key("wrong-key")
+
+    def test_mini_app_access_token_authenticates_requests(self) -> None:
         token = issue_access_token(AuthUser(12345, "tester", "Test"))
         user = current_user(None, f"Bearer {token}")
         self.assertEqual(user.telegram_id, 12345)

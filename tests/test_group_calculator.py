@@ -38,7 +38,8 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.result, "25")
-        self.assertIn("Binance:USDT/MNT:value × 2", result.expression)
+        self.assertIn("Binance · USDT/MNT (ханш) × 2", result.expression)
+        self.assertEqual(result.resolved_expression, "5 + 10 × 2")
 
     async def test_rejects_rate_outside_the_shortlist(self) -> None:
         with patch("services.group_calculator.get_subscriptions", return_value=[]):
@@ -79,6 +80,11 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.result, "22")
+        self.assertEqual(
+            result.expression,
+            "TDBM · USD/MNT (бэлэн бус зарах) × 2",
+        )
+        self.assertEqual(result.resolved_expression, "11 × 2")
 
 
 if __name__ == "__main__":

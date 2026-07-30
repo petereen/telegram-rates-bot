@@ -1390,6 +1390,47 @@ code {
   align-self: flex-start;
 }
 
+.api-key-form {
+  display: flex;
+  width: min(100%, 360px);
+  flex-direction: column;
+  gap: 9px;
+}
+
+.api-key-form label {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.api-key-form input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font: inherit;
+}
+
+.api-key-form input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.api-key-form button {
+  align-self: flex-start;
+  margin-top: 5px;
+}
+
+.auth-error {
+  margin: 14px 0 0 !important;
+  color: var(--danger) !important;
+  font-size: 13px !important;
+}
+
 .login-page > small {
   margin-top: 14px;
   color: var(--faint);

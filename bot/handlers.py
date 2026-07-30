@@ -12,7 +12,14 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from telegram import Update, ReplyKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     ContextTypes,
@@ -45,7 +52,10 @@ from services.group_calculator import (
     calculate_shortlist_expression,
 )
 from services.rates import (
+    RateSnapshot,
+    RateValue,
     get_formula_snapshots,
+    get_rate_snapshot,
     render_formula_html,
     render_share_html,
     resolve_user_rate_keys,
@@ -506,11 +516,14 @@ def _mention_expression(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str |
     return message.text[match.end():].strip() if match else None
 
 
-def _shortlist_calculation_html(expression: str, result: str) -> str:
+def _shortlist_calculation_html(
+    expression: str, resolved_expression: str, result: str
+) -> str:
     return (
-        "📐 <b>Тооцоолол</b>\n\n"
-        f"{_escape_html(expression)}\n"
-        f"= <code>{_escape_html(result)}</code>"
+        "🧮 <b>Тооцоолол</b>\n\n"
+        f"{_escape_html(expression)}\n\n"
+        f"<code>{_escape_html(resolved_expression)}</code>\n"
+        f"<b>Хариу:</b> <code>{_escape_html(result)}</code>"
     )
 
 
@@ -525,7 +538,11 @@ async def _shortlist_calculator_help(telegram_id: int, username: str | None) -> 
     ]
     if not references:
         return help_text + "\n\nЖагсаалт хоосон байна. /add ашиглан ханш нэмнэ үү."
-    choices = "\n".join(f"<code>{_escape_html(item)}</code>" for item in references)
+    choices = "\n".join(
+        f"• {_escape_html(item.replace(':', ' · ', 1))} — "
+        f"<code>{_escape_html(item)}</code>"
+        for item in references
+    )
     suffix = "\n…" if len(rows) > len(references) else ""
     return help_text + f"\n\nТаны сонгож ашиглах ханш:\n{choices}{suffix}"
 
@@ -550,7 +567,11 @@ async def _handle_mentioned_calculation(
         await message.reply_text(f"❌ {_escape_html(str(exc))}", parse_mode=ParseMode.HTML)
         return
     await message.reply_text(
-        _shortlist_calculation_html(calculation.expression, calculation.result),
+        _shortlist_calculation_html(
+            calculation.expression,
+            calculation.resolved_expression,
+            calculation.result,
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -983,6 +1004,153 @@ async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── Inline query handler (share via @botname) ─────────────────────
 
+_INLINE_RATE_LABELS = {
+    "value": "Ханш",
+    "buy": "Авах",
+    "sell": "Зарах",
+    "cash buy": "Бэлэн авах",
+    "cash sell": "Бэлэн зарах",
+    "non-cash buy": "Бэлэн бус авах",
+    "non-cash sell": "Бэлэн бус зарах",
+}
+
+
+def _inline_rate_reference(
+    snapshot: RateSnapshot, value: RateValue | None
+) -> str:
+    reference = f"{snapshot.source}:{snapshot.pair}"
+    if value is None or len(snapshot.values) == 1:
+        return reference
+    field = {
+        "non-cash buy": "noncash_buy",
+        "non-cash sell": "noncash_sell",
+    }.get(value.label, value.label.replace(" ", "_").replace("-", "_"))
+    return f"{reference}:{field}"
+
+
+def _inline_rate_html(
+    snapshot: RateSnapshot, value: RateValue | None, reference: str
+) -> str:
+    title = (
+        f"{_escape_html(snapshot.source)} · {_escape_html(snapshot.pair)}"
+    )
+    lines = [f"💱 <b>{title}</b>", ""]
+    if value is None:
+        lines.append(_escape_html(snapshot.error or "Ханш авах боломжгүй"))
+    else:
+        label = _INLINE_RATE_LABELS.get(value.label, value.label)
+        lines.append(
+            f"<b>{_escape_html(label)}:</b> "
+            f"<code>{_escape_html(value.amount)}</code>"
+        )
+    lines.extend(
+        [
+            "",
+            "<i>Тооцоололд ашиглах товчлол</i>",
+            f"<code>{_escape_html(reference)}</code>",
+        ]
+    )
+    return "\n".join(lines)
+
+
+async def _inline_shortlist_results(
+    telegram_id: int, search: str = ""
+) -> list[InlineQueryResultArticle]:
+    rows = await asyncio.to_thread(get_subscriptions, telegram_id)
+    rows = rows[:20]
+    if not rows:
+        return [
+            InlineQueryResultArticle(
+                id="shortlist-empty",
+                title="Хадгалсан ханш алга",
+                description="/add ашиглан ханшийн жагсаалтаа бүрдүүлнэ үү",
+                input_message_content=InputTextMessageContent(
+                    message_text=(
+                        "Хадгалсан ханш алга. "
+                        "/add ашиглан ханшийн жагсаалтаа бүрдүүлнэ үү."
+                    )
+                ),
+            )
+        ]
+
+    fetched = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                get_rate_snapshot, row["provider"], row["symbol"]
+            )
+            for row in rows
+        ),
+        return_exceptions=True,
+    )
+    normalized_search = search.casefold().replace(" ", "")
+    results: list[InlineQueryResultArticle] = []
+    for row, fetched_snapshot in zip(rows, fetched):
+        if isinstance(fetched_snapshot, Exception):
+            snapshot = RateSnapshot(
+                key=f"rate:{row['provider']}:{row['symbol']}",
+                kind="subscription",
+                source=str(row["provider"]),
+                pair=str(row["symbol"]),
+                values=[],
+                fetched_at=datetime.now(timezone.utc).isoformat(),
+                status="error",
+                error="Ханш авах боломжгүй",
+            )
+        else:
+            snapshot = fetched_snapshot
+
+        values: list[RateValue | None] = list(snapshot.values) or [None]
+        for value in values:
+            reference = _inline_rate_reference(snapshot, value)
+            label = (
+                _INLINE_RATE_LABELS.get(value.label, value.label)
+                if value is not None
+                else "Алдаа"
+            )
+            searchable = (
+                f"{snapshot.source}{snapshot.pair}{label}{reference}"
+                .casefold()
+                .replace(" ", "")
+            )
+            if normalized_search and normalized_search not in searchable:
+                continue
+            description = (
+                f"{label}: {value.amount} · {reference}"
+                if value is not None
+                else f"Ханш авах боломжгүй · {reference}"
+            )
+            results.append(
+                InlineQueryResultArticle(
+                    id=hashlib.sha256(
+                        f"shortlist:{reference}".encode()
+                    ).hexdigest()[:32],
+                    title=f"{snapshot.source} · {snapshot.pair} · {label}",
+                    description=description[:120],
+                    input_message_content=InputTextMessageContent(
+                        message_text=_inline_rate_html(
+                            snapshot, value, reference
+                        ),
+                        parse_mode=ParseMode.HTML,
+                    ),
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🧮 Тооцоолох",
+                                    switch_inline_query_current_chat=(
+                                        f"{reference} "
+                                    ),
+                                )
+                            ]
+                        ]
+                    ),
+                )
+            )
+            if len(results) == 40:
+                return results
+    return results
+
+
 async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle saved-rate shares and calculator expressions in inline mode.
 
@@ -995,7 +1163,14 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
 
     rate_id = (iq.query or "").strip()
     if not rate_id:
-        await iq.answer([], cache_time=0)
+        if not await asyncio.to_thread(is_whitelisted, iq.from_user.id):
+            await iq.answer([], cache_time=0, is_personal=True)
+            return
+        await iq.answer(
+            await _inline_shortlist_results(iq.from_user.id),
+            cache_time=0,
+            is_personal=True,
+        )
         return
 
     # Three-part IDs are emitted by the existing Share buttons. Everything
@@ -1004,6 +1179,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         re.fullmatch(r"[^:\s]+:[^:\s]+:\d+", rate_id)
     )
     calculator_result = None
+    suggestion_results: list[InlineQueryResultArticle] = []
     try:
         if rate_id.startswith("_b:"):
             token = rate_id[3:]
@@ -1065,7 +1241,9 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 iq.from_user.id, rate_id
             )
             html_text = _shortlist_calculation_html(
-                calculator_result.expression, calculator_result.result
+                calculator_result.expression,
+                calculator_result.resolved_expression,
+                calculator_result.result,
             )
     except Exception as exc:
         log.error("Inline query error for %s: %s", rate_id, exc)
@@ -1075,6 +1253,13 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
             else "Ханш татахад алдаа гарлаа."
         )
         html_text = f"❌ {_escape_html(error)}"
+        if (
+            isinstance(exc, ShortlistCalculationError)
+            and await asyncio.to_thread(is_whitelisted, iq.from_user.id)
+        ):
+            suggestion_results = await _inline_shortlist_results(
+                iq.from_user.id, rate_id
+            )
 
     # Strip <tg-emoji> tags (custom emoji won't render in inline results)
     clean_html = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', html_text)
@@ -1103,8 +1288,8 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 parse_mode=ParseMode.HTML,
             ),
         )
-    ]
-    await iq.answer(results, cache_time=0)
+    ] + suggestion_results
+    await iq.answer(results[:50], cache_time=0, is_personal=True)
 
 
 # ── Register everything on the Application ─────────────────────────────

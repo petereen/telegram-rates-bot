@@ -1,4 +1,4 @@
-"""Telegram Mini App and browser OIDC authentication."""
+"""API-key-gated Telegram Mini App and browser OIDC authentication."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from config import (
     APP_BASE_URL,
+    APP_API_KEY,
     AUTH_MAX_AGE,
     SESSION_COOKIE_SECURE,
     SESSION_SECRET,
@@ -29,10 +30,11 @@ from config import (
     TELEGRAM_OIDC_CLIENT_ID,
     TELEGRAM_OIDC_CLIENT_SECRET,
 )
-from db.supabase_client import ensure_user, is_whitelisted
+from db.supabase_client import ensure_user
 
 SESSION_COOKIE = "rates_session"
 OIDC_COOKIE = "rates_oidc"
+API_KEY_COOKIE = "rates_api_key"
 ACCESS_TOKEN_TTL = timedelta(hours=12)
 OIDC_ISSUER = "https://oauth.telegram.org"
 OIDC_AUTH_URL = f"{OIDC_ISSUER}/auth"
@@ -41,6 +43,7 @@ OIDC_JWKS_URL = f"{OIDC_ISSUER}/.well-known/jwks.json"
 
 serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="rates-session")
 oidc_serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="rates-oidc")
+api_key_serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="rates-api-key")
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,7 @@ def validate_mini_app_data(init_data: str, max_age: int = AUTH_MAX_AGE) -> AuthU
 def _set_session(response: Response, user: AuthUser) -> None:
     token = serializer.dumps(
         {
+            "auth": "api-key",
             "telegram_id": user.telegram_id,
             "username": user.username,
             "first_name": user.first_name,
@@ -111,12 +115,41 @@ def _set_session(response: Response, user: AuthUser) -> None:
     )
 
 
+def validate_api_key(api_key: str) -> None:
+    """Validate the shared app key without leaking it in logs or responses."""
+    if not APP_API_KEY:
+        raise HTTPException(status_code=503, detail="APP_API_KEY тохируулаагүй")
+    if not api_key or not hmac.compare_digest(api_key, APP_API_KEY):
+        raise HTTPException(status_code=401, detail="API key буруу")
+
+
 def establish_session(response: Response, user: AuthUser) -> AuthUser:
-    if not is_whitelisted(user.telegram_id):
-        raise HTTPException(status_code=403, detail="Танд ашиглах эрх байхгүй")
     ensure_user(user.telegram_id, user.username)
     _set_session(response, user)
     return user
+
+
+def establish_api_key_login(response: Response, api_key: str) -> None:
+    """Authorize the browser for the subsequent Telegram OIDC redirect."""
+    validate_api_key(api_key)
+    response.set_cookie(
+        API_KEY_COOKIE,
+        api_key_serializer.dumps({"authorized": True}),
+        max_age=600,
+        httponly=True,
+        secure=SESSION_COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _has_api_key_login(cookie: Optional[str]) -> bool:
+    if not cookie:
+        return False
+    try:
+        return bool(api_key_serializer.loads(cookie, max_age=600).get("authorized"))
+    except (BadSignature, SignatureExpired, AttributeError):
+        return False
 
 
 def issue_access_token(user: AuthUser) -> str:
@@ -130,6 +163,7 @@ def issue_access_token(user: AuthUser) -> str:
     return jwt.encode(
         {
             "sub": str(user.telegram_id),
+            "auth": "api-key",
             "username": user.username,
             "first_name": user.first_name,
             "iss": "oyuns-rates",
@@ -149,6 +183,8 @@ def _user_from_access_token(token: str) -> AuthUser:
             algorithms=["HS256"],
             issuer="oyuns-rates",
         )
+        if payload.get("auth") != "api-key":
+            raise jwt.InvalidTokenError("API key authentication required")
         return AuthUser(
             telegram_id=int(payload["sub"]),
             username=str(payload.get("username") or ""),
@@ -172,6 +208,8 @@ def current_user(
             raise HTTPException(status_code=401, detail="Нэвтэрнэ үү")
         try:
             payload = serializer.loads(rates_session, max_age=60 * 60 * 12)
+            if payload.get("auth") != "api-key":
+                raise BadSignature("API key authentication required")
             user = AuthUser(
                 telegram_id=int(payload["telegram_id"]),
                 username=str(payload.get("username") or ""),
@@ -179,12 +217,12 @@ def current_user(
             )
         except (BadSignature, SignatureExpired, KeyError, ValueError) as exc:
             raise HTTPException(status_code=401, detail="Нэвтрэх хугацаа дууссан") from exc
-    if not is_whitelisted(user.telegram_id):
-        raise HTTPException(status_code=403, detail="Танд ашиглах эрх байхгүй")
     return user
 
 
-def oidc_login_response() -> RedirectResponse:
+def oidc_login_response(api_key_cookie: Optional[str]) -> RedirectResponse:
+    if not _has_api_key_login(api_key_cookie):
+        raise HTTPException(status_code=401, detail="Эхлээд API key оруулна уу")
     if not TELEGRAM_OIDC_CLIENT_SECRET:
         raise HTTPException(status_code=503, detail="Telegram web login тохируулаагүй")
     if not APP_BASE_URL.startswith("https://"):
@@ -230,7 +268,10 @@ async def oidc_callback_response(
     code: str,
     state_value: str,
     oidc_cookie: Optional[str],
+    api_key_cookie: Optional[str],
 ) -> RedirectResponse:
+    if not _has_api_key_login(api_key_cookie):
+        raise HTTPException(status_code=401, detail="API key хугацаа дууссан")
     if not oidc_cookie:
         raise HTTPException(status_code=401, detail="OIDC төлөв олдсонгүй")
     try:
@@ -279,4 +320,5 @@ async def oidc_callback_response(
     response = RedirectResponse("/", status_code=302)
     establish_session(response, user)
     response.delete_cookie(OIDC_COOKIE, path="/api/auth/telegram/callback")
+    response.delete_cookie(API_KEY_COOKIE, path="/")
     return response
