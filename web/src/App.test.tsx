@@ -233,7 +233,7 @@ describe("App shell", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Ханш" });
     fireEvent.click(screen.getAllByRole("button", { name: "Тооцоолсон" }).at(-1)!);
-    fireEvent.click(screen.getByRole("button", { name: "Томьёо удирдах" }));
+    fireEvent.click(screen.getByRole("button", { name: "Томьёо тохируулах" }));
     fireEvent.click(screen.getByRole("button", { name: "Шинэ томьёо" }));
 
     const preview = screen.getByText("Одоогийн томьёо").nextElementSibling;

@@ -384,7 +384,7 @@ function ManageSheet({
         className="sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Ханш удирдах"
+        aria-label="Ханш тохируулах"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="sheet-handle" />
@@ -922,14 +922,14 @@ function FormulaManager({
         className="sheet formula-manager-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Томьёо удирдах"
+        aria-label="Томьёо тохируулах"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="sheet-handle" />
         <header className="sheet-header">
           <div>
             <span className="eyebrow">ГЛОБАЛ ТОХИРГОО</span>
-            <h2>Томьёо удирдах</h2>
+            <h2>Томьёо тохируулах</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Хаах">
             <X size={20} />
@@ -1141,7 +1141,7 @@ function FormulaManager({
                     />
                   </label>
                   <label>
-                    <span>Бүхэлдэх аравтын орон. Ж: 2 гэсэн утга зуутаар бүхэлдэнэ</span>
+                    <span>Бүхэлдэх аравтын орон</span>
                     <input
                       type="number"
                       min={0}
@@ -1784,7 +1784,7 @@ export default function App() {
                   <button
                     className="icon-button bordered"
                     onClick={() => setFormulaManagerOpen(true)}
-                    aria-label="Томьёо удирдах"
+                    aria-label="Томьёо тохируулах"
                   >
                     <Pencil size={18} />
                   </button>
@@ -1844,7 +1844,7 @@ export default function App() {
                   }
                 >
                   <Plus size={17} />
-                  {tab === "rates" ? "Ханш нэмэх" : "Томьёо удирдах"}
+                  {tab === "rates" ? "Ханш нэмэх" : "Томьёо тохируулах"}
                 </button>
               </section>
             )}
