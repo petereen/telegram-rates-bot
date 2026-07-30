@@ -38,3 +38,15 @@ create table if not exists public.cached_rates (
     fetched_at  timestamptz  not null default now(),
     primary key (provider, symbol)
 );
+
+-- 5. Short-lived selections used to hand browser sharing into the Mini App.
+create table if not exists public.share_bundles (
+    token        text         primary key,
+    telegram_id  bigint       not null references public.users(telegram_id) on delete cascade,
+    payload      jsonb        not null default '{}'::jsonb,
+    created_at   timestamptz  not null default now(),
+    expires_at   timestamptz  not null
+);
+
+create index if not exists idx_share_bundles_owner
+    on public.share_bundles(telegram_id, expires_at);

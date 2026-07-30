@@ -88,11 +88,11 @@ def remove_subscription(telegram_id: int, provider: str, symbol: str) -> bool:
 
 
 def get_subscriptions(telegram_id: int) -> list[dict[str, str]]:
-    """Return list of {provider, symbol} dicts for this user."""
+    """Return subscription rows for this user."""
     sb = _get_client()
     result = (
         sb.table("user_subscriptions")
-        .select("provider, symbol")
+        .select("id, provider, symbol")
         .eq("telegram_id", telegram_id)
         .order("provider")
         .execute()
@@ -110,6 +110,19 @@ def clear_subscriptions(telegram_id: int) -> int:
         .execute()
     )
     return len(result.data) if result.data else 0
+
+
+def remove_subscription_by_id(telegram_id: int, subscription_id: str) -> bool:
+    """Remove one subscription only when it belongs to the current user."""
+    sb = _get_client()
+    result = (
+        sb.table("user_subscriptions")
+        .delete()
+        .eq("id", subscription_id)
+        .eq("telegram_id", telegram_id)
+        .execute()
+    )
+    return bool(result.data)
 
 
 # ── Whitelist ──────────────────────────────────────────────────────────
@@ -167,11 +180,17 @@ def get_whitelist() -> list[int]:
 _mem_cache: dict[tuple[str, str], tuple[datetime, dict[str, Any]]] = {}
 
 
-def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
-    """Return cached rate_data dict if fresh, else None.
+def get_cached_rate_entry(
+    provider: str,
+    symbol: str,
+    *,
+    include_stale: bool = False,
+) -> tuple[dict[str, Any], datetime] | None:
+    """Return cached data and its timestamp.
 
     Checks an in-memory dict first to avoid Supabase round-trips,
-    then falls back to the remote table.
+    then falls back to the remote table. Stale entries are returned only when
+    explicitly requested, which lets the web UI preserve the last good value.
     """
     now = datetime.now(timezone.utc)
     key = (provider, symbol)
@@ -180,8 +199,8 @@ def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
     # 1. In-memory check (fast path)
     if key in _mem_cache:
         ts, data = _mem_cache[key]
-        if now - ts <= ttl:
-            return data
+        if include_stale or now - ts <= ttl:
+            return data, ts
 
     # 2. Supabase fallback
     sb = _get_client()
@@ -196,14 +215,20 @@ def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
         return None
     fetched_at_str: str = row.data[0]["fetched_at"]
     fetched_at = datetime.fromisoformat(fetched_at_str.replace("Z", "+00:00"))
-    if now - fetched_at > ttl:
+    if not include_stale and now - fetched_at > ttl:
         return None
     data = row.data[0]["rate_data"]
     if isinstance(data, str):
         data = json.loads(data)
     # Warm in-memory cache from Supabase hit
     _mem_cache[key] = (fetched_at, data)
-    return data  # type: ignore[return-value]
+    return data, fetched_at  # type: ignore[return-value]
+
+
+def get_cached_rate(provider: str, symbol: str) -> dict[str, Any] | None:
+    """Return cached rate_data dict if fresh, else None."""
+    entry = get_cached_rate_entry(provider, symbol)
+    return entry[0] if entry else None
 
 
 def get_daily_cached_rate(
@@ -269,3 +294,47 @@ def set_cached_rate(provider: str, symbol: str, rate_data: dict[str, Any]) -> No
         },
         on_conflict="provider,symbol",
     ).execute()
+
+
+# ── Short-lived share bundles ─────────────────────────────────────────
+
+def create_share_bundle(
+    telegram_id: int,
+    token: str,
+    payload: dict[str, Any],
+    expires_at: datetime,
+) -> None:
+    sb = _get_client()
+    # Opportunistic cleanup keeps the short-lived table bounded without a
+    # separate scheduler or database extension.
+    sb.table("share_bundles").delete().lt(
+        "expires_at", datetime.now(timezone.utc).isoformat()
+    ).execute()
+    sb.table("share_bundles").insert(
+        {
+            "token": token,
+            "telegram_id": telegram_id,
+            "payload": json.dumps(payload),
+            "expires_at": expires_at.isoformat(),
+        }
+    ).execute()
+
+
+def get_share_bundle(telegram_id: int, token: str) -> dict[str, Any] | None:
+    sb = _get_client()
+    result = (
+        sb.table("share_bundles")
+        .select("payload, expires_at")
+        .eq("token", token)
+        .eq("telegram_id", telegram_id)
+        .execute()
+    )
+    if not result.data:
+        return None
+    row = result.data[0]
+    expires_at = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    if expires_at <= datetime.now(timezone.utc):
+        sb.table("share_bundles").delete().eq("token", token).execute()
+        return None
+    payload = row["payload"]
+    return json.loads(payload) if isinstance(payload, str) else payload

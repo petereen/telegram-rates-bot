@@ -16,6 +16,15 @@ main.py
   -> registers handlers from bot/handlers.py
   -> polls Telegram
 
+api/app.py
+  -> authenticates through api/auth.py
+  -> exposes structured rates, subscriptions, calculator, and sharing
+  -> serves the production React build from web/dist
+
+web/src/App.tsx
+  -> renders the Mini App/browser interface
+  -> invokes native prepared-message sharing inside Telegram
+
 Telegram command/button
   -> bot/handlers.py
   -> db/supabase_client.py (access, watchlist, cache)
@@ -34,6 +43,11 @@ Telegram command/button
 | `db/supabase_client.py` | Supabase CRUD plus two-level rate cache. |
 | `providers/base.py` | Provider class contract, registry, and `get_rate()`. |
 | `providers/*.py` | Individual external rate sources. |
+| `services/rates.py` | Structured snapshots, formulas, and share renderer. |
+| `services/calculator.py` | Safe shared calculator evaluator. |
+| `api/app.py` | Authenticated HTTP API and production SPA host. |
+| `api/auth.py` | Mini App validation, sessions, and Telegram OIDC. |
+| `web/` | React/TypeScript Mini App and browser UI. |
 | `schema.sql` | Required Supabase database schema. |
 
 ## Access and stored data
@@ -48,6 +62,7 @@ Supabase tables:
 - `user_subscriptions`: user watchlist entries `(provider, symbol)`.
 - `whitelist`: permitted Telegram IDs.
 - `cached_rates`: cached payload by `(provider, symbol)`.
+- `share_bundles`: short-lived owner-bound browser sharing state.
 
 ## User behavior
 
@@ -128,11 +143,11 @@ Every provider must:
 live fetch. Both successful and error payloads are cached for `CACHE_TTL`
 seconds (default: 300), so failures can appear temporarily cached.
 
-Registered at startup: `CBR`, `XE`, `Binance`, `Rapira`, `Profinance`, `BOC`,
-`TDB`, and `MongolBank`.
+Registered through `providers/registry.py`: `CBR`, `XE`, `Binance`, `Rapira`,
+`Profinance`, `BOC`, `TDB`, `MongolBank`, and `CapitronBank`.
 
-`providers/grx.py` exists but is **not imported in `main.py`**. Its registration
-decorator therefore never runs, so GRX is not exposed by the current bot.
+`providers/grx.py` exists but is intentionally not imported by the shared
+registry, so GRX is not exposed.
 
 ## Change-safety notes
 
@@ -147,7 +162,8 @@ decorator therefore never runs, so GRX is not exposed by the current bot.
 - Telegram output uses `ParseMode.HTML`; escape untrusted content before adding
   it to HTML messages.
 - Timestamps in handlers explicitly use Ulaanbaatar time (UTC+8).
-- Adding a provider requires both its module and an import in `main.py`.
+- Adding a provider requires both its module and an import in
+  `providers/registry.py`.
 
 ## Configuration and startup
 
@@ -160,6 +176,10 @@ SUPABASE_KEY
 ```
 
 Optional: `CACHE_TTL` (defaults to `300`). Apply `schema.sql` before use.
+
+The web/API surface additionally uses `APP_BASE_URL`, `SESSION_SECRET`,
+`TELEGRAM_BOT_USERNAME`, `TELEGRAM_APP_SHORT_NAME`, and
+`TELEGRAM_OIDC_CLIENT_ID`/`TELEGRAM_OIDC_CLIENT_SECRET`. See `.env.example`.
 
 ```bash
 python main.py

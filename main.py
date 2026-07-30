@@ -13,17 +13,7 @@ from telegram.ext import ApplicationBuilder
 from config import TELEGRAM_BOT_TOKEN
 from bot.handlers import register_handlers
 from providers.mongolbank import run_daily_refresh
-
-# ── Import providers so their @register_provider decorators run ────────
-import providers.cbr       # noqa: F401
-import providers.xe        # noqa: F401
-import providers.binance   # noqa: F401
-import providers.profinance  # noqa: F401
-import providers.boc       # noqa: F401
-import providers.rapira    # noqa: F401
-import providers.mongolbank  # noqa: F401
-import providers.capitronbank  # noqa: F401
-import providers.tdb       # noqa: F401
+from providers.registry import register_all_providers
 
 
 logging.basicConfig(
@@ -35,6 +25,7 @@ log = logging.getLogger(__name__)
 
 def main() -> None:
     log.info("Starting Exchange Rates Bot …")
+    register_all_providers()
     threading.Thread(
         target=run_daily_refresh,
         name="mongolbank-daily-refresh",

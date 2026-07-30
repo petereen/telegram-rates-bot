@@ -12,3 +12,8 @@ build/
 .idea/
 .vscode/
 *.log
+node_modules/
+web/dist/
+web/.vite/
+web/test-results/
+web/playwright-report/

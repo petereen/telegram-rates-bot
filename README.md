@@ -1,12 +1,21 @@
-# Telegram Exchange Rates Bot
+# Telegram Exchange Rates Bot + Mini App
 
-A production-ready Telegram bot that fetches financial exchange rates from multiple sources and lets users build a personalised watchlist. Built with **python-telegram-bot v20+**, **Supabase**, and a modular Factory-pattern provider architecture.
+A Telegram bot, Mini App, and responsive website for private exchange-rate
+watchlists, calculated rates, arithmetic, and formatted Telegram sharing.
+The backend uses **python-telegram-bot**, **FastAPI**, and **Supabase**; the
+frontend uses **React**, **TypeScript**, and **Vite**.
+
+The Mini App and browser UI share four sections: **Ханш**, **Тооцоолсон**,
+**Тооны машин**, and **Тохиргоо**. Existing bot commands remain available.
 
 ## Project Structure
 
 ```
 telegram-rates-bot/
 ├── main.py                  # Entry point
+├── api/                     # FastAPI routes and Telegram authentication
+├── services/                # Shared rates, formulas, calculator, sharing
+├── web/                     # React/TypeScript application
 ├── config.py                # Env-var loader
 ├── schema.sql               # Supabase table DDL
 ├── requirements.txt
@@ -29,26 +38,68 @@ telegram-rates-bot/
 
 ## Supabase Setup
 
-Open the Supabase SQL Editor for your project and run every statement in `schema.sql`. This creates three tables: `users`, `user_subscriptions`, and `cached_rates`. The cache table stores JSON rate data with a composite primary key of `(provider, symbol)` so that upserts naturally replace stale entries. The default cache TTL is 300 seconds (5 minutes) and is controlled by the `CACHE_TTL` environment variable.
+Open the Supabase SQL Editor and run every statement in `schema.sql`. This
+creates the user, subscription, whitelist, cache, and short-lived share-bundle
+tables. Existing subscription and cache keys remain unchanged.
 
 ## Dokploy Deployment
 
-This repository is ready to deploy as a **Docker Compose** service. The bot uses Telegram long polling, so it does not expose an HTTP port and does not need a domain.
+Docker Compose runs `bot` for Telegram polling and `web` for FastAPI plus the
+built React application. Attach an HTTPS domain to the `web` service on port
+`8000`.
 
 1. In Dokploy, create a project and a **Docker Compose** service connected to this repository and branch.
 2. Set the Compose Path to `./docker-compose.yml`.
-3. In the service's **Environment** tab, add the following variables. Dokploy writes them to the `.env` file consumed by the Compose service:
+3. In the service's **Environment** tab, add:
 
    ```env
    TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_BOT_USERNAME=your_bot_username
+   TELEGRAM_APP_SHORT_NAME=rates
+   TELEGRAM_OIDC_CLIENT_ID=...
+   TELEGRAM_OIDC_CLIENT_SECRET=...
    SUPABASE_URL=https://your-project.supabase.co
    SUPABASE_KEY=...
    CACHE_TTL=300
+   APP_BASE_URL=https://rates.example.com
+   SESSION_SECRET=replace-with-a-long-random-value
+   SESSION_COOKIE_SECURE=true
+   AUTH_MAX_AGE=900
    ```
 
-4. Deploy, then use the `bot` service logs in Dokploy to confirm `Bot is polling.` appears.
+4. Apply `schema.sql`, deploy, and configure BotFather with the public domain,
+   OIDC callback `${APP_BASE_URL}/api/auth/telegram/callback`, Main Mini App
+   short name, menu button URL, and inline mode.
+5. Confirm `Bot is polling.` in the bot logs and `/api/health` returns
+   `{"status":"ok"}` on the web domain.
 
-The Compose service restarts automatically unless explicitly stopped. Do not run another instance with the same Telegram token: Telegram permits only one active long-polling consumer per bot.
+Do not run another polling instance with the same Telegram token.
+
+## Local Development
+
+Create `.env` from `.env.example`, set `SESSION_COOKIE_SECURE=false`, and apply
+`schema.sql`.
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cd web && npm install
+```
+
+Run these in separate terminals:
+
+```bash
+.venv/bin/uvicorn api.app:app --reload --port 8000
+cd web && npm run dev
+.venv/bin/python main.py
+```
+
+The Vite server proxies `/api` to port `8000`. Verification commands:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+cd web && npm test && npm run test:e2e && npm run build
+```
 
 ## VPS Deployment
 

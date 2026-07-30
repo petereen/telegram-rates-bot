@@ -34,11 +34,17 @@ from db.supabase_client import (
     remove_from_whitelist,
     get_whitelist,
     set_cached_rate,
+    get_share_bundle,
 )
 from providers.base import get_provider, all_providers
-from providers.mongolbank import fetch_mongolbank_rub_rate
-from providers.tdb import fetch_tdb_usd_noncash_sell
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
+from services.calculator import evaluate_tokens
+from services.rates import (
+    get_formula_snapshots,
+    render_formula_html,
+    render_share_html,
+    resolve_user_rate_keys,
+)
 
 log = logging.getLogger(__name__)
 
@@ -200,103 +206,10 @@ def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-async def _build_formula_section() -> list[str]:
-    """Calculate and format the three formula-based rates.
-
-    All upstream fetches run in parallel via asyncio.to_thread.
-
-    ДЕЛЬКРАДО:  MongolBank RUB rate + 0.50%
-    ТРИКУЭТРА:  (TDB Bank non-cash USD sell / CBR USD/RUB) + 1%
-    RUB БЭЛЭН:  Binance P2P USDT/MNT (min) / Rapira USDT/RUB buy
-    """
-    # Fire all blocking fetches in parallel
-    mb_fut = asyncio.to_thread(fetch_mongolbank_rub_rate)
-    tdb_fut = asyncio.to_thread(fetch_tdb_usd_noncash_sell)
-    cbr_fut = asyncio.to_thread(lambda: get_provider("CBR").get_rate("USD/RUB"))
-    binance_fut = asyncio.to_thread(lambda: get_provider("Binance").get_rate("P2P USDT/MNT"))
-    rapira_fut = asyncio.to_thread(lambda: get_provider("Rapira").get_rate("USDT/RUB"))
-
-    mb_data, tdb_data, cbr_data, binance_data, rapira_data = await asyncio.gather(
-        mb_fut, tdb_fut, cbr_fut, binance_fut, rapira_fut,
-        return_exceptions=True,
-    )
-
-    lines: list[str] = []
-
-    # ── ДЕЛЬКРАДО ──────────────────────────────────────────────────────
-    try:
-        if isinstance(mb_data, Exception):
-            raise mb_data
-        if "error" not in mb_data:
-            mb_rub = mb_data["rate"]
-            delcrado = mb_rub * 1.005
-            lines.append(
-                f"<b>ДЕЛЬКРАДО:</b>\n"
-                f"  MongolBank RUB: {mb_rub:.2f} + 0.50%\n"
-                f"  ▶ <code>{delcrado:.2f}</code>"
-            )
-        else:
-            log.warning("ДЕЛЬКРАДО: MongolBank RUB rate not found")
-            lines.append("<b>ДЕЛЬКРАДО:</b> алдаа (MongolBank)")
-    except Exception as exc:
-        log.error("Formula ДЕЛЬКРАДО error: %s", exc)
-        lines.append("<b>ДЕЛЬКРАДО:</b> алдаа (MongolBank)")
-
-    # ── ТРИКУЭТРА ─────────────────────────────────────────────────────
-    try:
-        if isinstance(tdb_data, Exception):
-            raise tdb_data
-        if isinstance(cbr_data, Exception):
-            raise cbr_data
-        if "error" not in tdb_data and cbr_data.get("rate"):
-            tdb_usd = tdb_data["rate"]
-            cbr_usd_rub = cbr_data["rate"]
-            triquetra = (tdb_usd / cbr_usd_rub) * 1.01
-            lines.append(
-                f"<b>ТРИКУЭТРА:</b>\n"
-                f"  TDB USD sell: {tdb_usd:.2f} / CBR USD/RUB: {cbr_usd_rub:.4f} + 1%\n"
-                f"  ▶ <code>{triquetra:.2f}</code>"
-            )
-        else:
-            lines.append("<b>ТРИКУЭТРА:</b> алдаа")
-    except Exception as exc:
-        log.error("Formula ТРИКУЭТРА error: %s", exc)
-        lines.append("<b>ТРИКУЭТРА:</b> алдаа")
-
-    # ── RUB БЭЛЭН ─────────────────────────────────────────────────────
-    try:
-        if isinstance(binance_data, Exception):
-            raise binance_data
-        if isinstance(rapira_data, Exception):
-            raise rapira_data
-
-        min_price = binance_data.get("min_price")
-        rapira_buy = rapira_data.get("buy") or rapira_data.get("bid")
-
-        if min_price is not None and rapira_buy is not None:
-            min_price_f = float(min_price)
-            rapira_buy_f = float(rapira_buy)
-            rub_belen = min_price_f / rapira_buy_f
-            lines.append(
-                f"<b>RUB БЭЛЭН:</b>\n"
-                f"  Binance USDT/MNT: {min_price_f:.2f} / Rapira Buy: {rapira_buy_f:.2f}\n"
-                f"  ▶ <code>{rub_belen:.2f}</code>"
-            )
-        else:
-            missing = []
-            if min_price is None:
-                missing.append("Binance P2P")
-            if rapira_buy is None:
-                missing.append("Rapira")
-            src = ", ".join(missing)
-            log.warning("RUB БЭЛЭН: missing data from %s", src)
-            lines.append(f"<b>RUB БЭЛЭН:</b> алдаа ({src})")
-    except Exception as exc:
-        log.error("Formula RUB БЭЛЭН error: %s", exc)
-        src = "Binance P2P" if isinstance(binance_data, Exception) else "Rapira"
-        lines.append(f"<b>RUB БЭЛЭН:</b> алдаа ({src})")
-
-    return lines
+async def _build_formula_section(force: bool = False) -> list[str]:
+    """Calculate and render the three shared structured formula snapshots."""
+    snapshots = await get_formula_snapshots(force=force)
+    return [render_formula_html(snapshot) for snapshot in snapshots]
 
 
 # ── /calc ───────────────────────────────────────────────────────────────
@@ -844,7 +757,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
             # Formula rate update
             idx = int(rate_id.split(":")[1])
             try:
-                formula_lines = await _build_formula_section()
+                formula_lines = await _build_formula_section(force=True)
                 if idx < len(formula_lines):
                     text = formula_lines[idx] + ts_line
                 else:
@@ -986,7 +899,23 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         return
 
     try:
-        if rate_id.startswith("_t:"):
+        if rate_id.startswith("_b:"):
+            token = rate_id[3:]
+            bundle = await asyncio.to_thread(
+                get_share_bundle, iq.from_user.id, token
+            )
+            if bundle is None:
+                raise ValueError("Share bundle expired")
+            keys = list(bundle.get("rateKeys") or [])
+            snapshots = (
+                await resolve_user_rate_keys(iq.from_user.id, keys)
+                if keys
+                else []
+            )
+            calc_tokens = bundle.get("calculationTokens")
+            calculation = evaluate_tokens(calc_tokens) if calc_tokens else None
+            html_text = render_share_html(snapshots, calculation)
+        elif rate_id.startswith("_t:"):
             # Direct text share (e.g. calc results)
             html_text = f"📐 <b>Тооцоолол</b>\n\n{rate_id[3:]}"
         elif rate_id.startswith("_f:"):
