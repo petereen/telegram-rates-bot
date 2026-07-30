@@ -17,7 +17,9 @@ TELEGRAM_OIDC_CLIENT_SECRET: str = os.getenv("TELEGRAM_OIDC_CLIENT_SECRET", "")
 
 # Shared secret required before a Telegram identity can create an app session.
 # Keep this backend-only; the user enters it in the login screen.
-APP_API_KEY: str = os.getenv("APP_API_KEY", "")
+APP_API_KEY: str = (
+    os.getenv("APP_API_KEY") or os.getenv("API_KEY") or ""
+).strip()
 
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]

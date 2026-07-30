@@ -1406,8 +1406,9 @@ code {
 }
 
 .api-key-form input {
+  width: 100%;
   min-height: 44px;
-  padding: 0 12px;
+  padding: 0 44px 0 12px;
   border: 1px solid var(--rule-strong);
   border-radius: 4px;
   background: var(--paper-raised);
@@ -1415,12 +1416,38 @@ code {
   font: inherit;
 }
 
+.api-key-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.show-api-key {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.show-api-key:hover,
+.show-api-key:focus-visible {
+  color: var(--ink);
+}
+
 .api-key-form input:focus {
   border-color: var(--accent);
   outline: none;
 }
 
-.api-key-form button {
+.api-key-form > button {
   align-self: flex-start;
   margin-top: 5px;
 }

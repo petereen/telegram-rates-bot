@@ -5,6 +5,8 @@ import {
   ChevronRight,
   ChevronUp,
   CircleHelp,
+  Eye,
+  EyeOff,
   Image as ImageIcon,
   Moon,
   Pencil,
@@ -1444,6 +1446,7 @@ export default function App() {
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const [telegramError, setTelegramError] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [theme, setTheme] = useState<ThemeChoice>(
@@ -1745,21 +1748,32 @@ export default function App() {
     return (
       <main className="login-page">
         <div className="login-rule" />
-        <span className="eyebrow">OYUNS · EXCHANGE LEDGER</span>
-        <h1>Ханш нэг дор.<br />Илүү ойлгомжтой.</h1>
-        <p>Хадгалсан болон тооцоолсон ханшаа харах, тооцоолох, Telegram чат руу цэгцтэй хуваалцах.</p>
+        <span className="eyebrow">OYUNS ALL-IN-ONE EXCHANGE LEDGER</span>
+        <h1>Илүү хялбар..<br />Илүү ойлгомжтой.</h1>
+        <p>Хадгалсан болон тооцоолсон ханшаа харах, тооцоолох, Telegram чат руу цэгцтэй хуваалцах боломжтой.</p>
         {!isBrowserLogin ? (
           <form className="api-key-form" onSubmit={submitApiKey}>
             <label htmlFor="app-api-key">API key</label>
-            <input
-              id="app-api-key"
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder="API key оруулна уу"
-              autoComplete="current-password"
-              autoFocus
-            />
+            <div className="api-key-input-wrap">
+              <input
+                id="app-api-key"
+                type={showApiKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="API key оруулна уу"
+                autoComplete="current-password"
+                autoFocus
+              />
+              <button
+                className="show-api-key"
+                type="button"
+                aria-label={showApiKey ? "API key нуух" : "API key харуулах"}
+                title={showApiKey ? "API key нуух" : "API key харуулах"}
+                onClick={() => setShowApiKey((visible) => !visible)}
+              >
+                {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
             <button className="primary-button" type="submit" disabled={authSubmitting || !apiKey.trim()}>
               {authSubmitting ? "Шалгаж байна…" : "Нэвтрэх"}
             </button>
