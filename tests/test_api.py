@@ -55,9 +55,9 @@ class ApiTests(unittest.TestCase):
     def test_rate_search_matches_all_provider_metadata(self) -> None:
         snapshots = [
             RateSnapshot(
-                key="rate:TDB:USD/MNT",
+                key="rate:TDBM:USD/MNT",
                 kind="subscription",
-                source="TDB",
+                source="TDBM",
                 pair="USD/MNT",
                 values=[RateValue("sell", "3560")],
                 fetched_at="2026-07-30T00:00:00+00:00",
@@ -70,12 +70,12 @@ class ApiTests(unittest.TestCase):
                 "DISPLAY_NAME": "Худалдаа Хөгжлийн Банк",
                 "PAIRS": {"USD/MNT": "US Dollar ↔ Tögrög"},
             })()
-            providers.return_value = {"TDB": provider}
+            providers.return_value = {"TDBM": provider}
             response = self.client.get("/api/rates/search?q=usd/mnt")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["rates"][0]["pair"], "USD/MNT")
-        get_snapshot.assert_called_once_with("TDB", "USD/MNT")
+        get_snapshot.assert_called_once_with("TDBM", "USD/MNT")
 
     def test_formula_create_validates_and_returns_definition(self) -> None:
         row = {

@@ -87,7 +87,7 @@ insert into public.calculated_formulas (
     (
         'triquetra',
         'ТРИКУЭТРА',
-        '{"kind":"rate","provider":"TDB","symbol":"USD/MNT","field":"sell"}',
+        '{"kind":"rate","provider":"TDBM","symbol":"USD/MNT","field":"noncash_sell"}',
         '/',
         '{"kind":"rate","provider":"CBR","symbol":"USD/RUB","field":"rate"}',
         1,
@@ -105,6 +105,44 @@ insert into public.calculated_formulas (
         2
     )
 on conflict (id) do nothing;
+
+-- Upgrade the retired one-off TDB scraper to the normalized TDBM provider.
+-- This is idempotent and preserves user-created formulas and subscriptions.
+delete from public.user_subscriptions legacy
+using public.user_subscriptions replacement
+where legacy.provider = 'TDB'
+  and replacement.provider = 'TDBM'
+  and replacement.telegram_id = legacy.telegram_id
+  and replacement.symbol = legacy.symbol;
+
+update public.user_subscriptions
+set provider = 'TDBM'
+where provider = 'TDB';
+
+-- Legacy payloads only expose buy/sell; a new TDBM snapshot needs its four
+-- cash/non-cash fields, so do not carry this cache forward.
+delete from public.cached_rates
+where provider = 'TDB';
+
+update public.calculated_formulas
+set left_operand = jsonb_set(
+        jsonb_set(left_operand, '{provider}', '"TDBM"'::jsonb),
+        '{field}',
+        to_jsonb(case when left_operand->>'field' = 'buy'
+                      then 'noncash_buy' else 'noncash_sell' end)
+    ),
+    updated_at = now()
+where left_operand @> '{"kind":"rate","provider":"TDB"}'::jsonb;
+
+update public.calculated_formulas
+set right_operand = jsonb_set(
+        jsonb_set(right_operand, '{provider}', '"TDBM"'::jsonb),
+        '{field}',
+        to_jsonb(case when right_operand->>'field' = 'buy'
+                      then 'noncash_buy' else 'noncash_sell' end)
+    ),
+    updated_at = now()
+where right_operand @> '{"kind":"rate","provider":"TDB"}'::jsonb;
 
 -- 7. Global app and source branding metadata.
 create table if not exists public.app_branding (

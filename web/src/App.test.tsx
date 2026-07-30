@@ -94,6 +94,7 @@ describe("App shell", () => {
     expect(screen.getAllByText("Тооцоолсон").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Тооны машин").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Тохиргоо").length).toBeGreaterThan(0);
+    expect(api.calculated).not.toHaveBeenCalled();
   });
 
   it("reads signed Mini App launch data from Telegram Desktop's URL fragment", () => {
@@ -182,9 +183,9 @@ describe("App shell", () => {
     vi.mocked(api.searchRates).mockResolvedValue({
       rates: [
         {
-          key: "rate:TDB:USD/MNT",
+          key: "rate:TDBM:USD/MNT",
           kind: "subscription",
-          source: "TDB",
+          source: "TDBM",
           pair: "USD/MNT",
           values: [{ label: "sell", amount: "3560" }],
           details: [],

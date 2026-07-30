@@ -5,6 +5,7 @@ bot.handlers – Telegram command and callback handlers.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from collections import defaultdict
@@ -39,6 +40,10 @@ from db.supabase_client import (
 from providers.base import get_provider, all_providers
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
 from services.calculator import evaluate_tokens, format_hundredths
+from services.group_calculator import (
+    ShortlistCalculationError,
+    calculate_shortlist_expression,
+)
 from services.rates import (
     get_formula_snapshots,
     render_formula_html,
@@ -84,7 +89,7 @@ _PROVIDER_EMOJI: dict[str, str] = {
     "CBR":        '<tg-emoji emoji-id="6136465649788001541">\U0001f1f7\U0001f1fa</tg-emoji>',
     "Profinance": '<tg-emoji emoji-id="6134027577242689559">\U0001f4ca</tg-emoji>',
     "GRX":        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji>',
-    "TDB":        '<tg-emoji emoji-id="6195193078383386584">\U0001f3e6</tg-emoji>',
+    "TDBM":       '<tg-emoji emoji-id="6195193078383386584">\U0001f3e6</tg-emoji>',
     "Mongolbank": '<tg-emoji emoji-id="6194814206433303966">\U0001f1f2\U0001f1f3</tg-emoji>',
 }
 
@@ -107,7 +112,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/calc – тооцоолсон ханш\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
-        "/help – тусламж",
+        "/help – тусламж\n\n"
+        "Бүлэгт: @botname CBR:USD/RUB / 2 гэж бичиж тооцоолно. "
+        "Хадгалсан ханшаа Provider:PAIR[:талбар] хэлбэрээр оруулна.",
         reply_markup=_CALC_KEYBOARD,
     )
 
@@ -125,7 +132,9 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/calc – тооцоолсон ханш\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
-        "/help – тусламж",
+        "/help – тусламж\n\n"
+        "Бүлэгт: @botname CBR:USD/RUB / 2 гэж бичиж тооцоолно. "
+        "Хадгалсан ханшаа Provider:PAIR[:талбар] хэлбэрээр оруулна.",
 
     )
 
@@ -478,6 +487,73 @@ def _evaluate_tokens(tokens: list) -> float:
 
 # ── Calculator message handler (state machine) ────────────────────────
 
+_GROUP_CALCULATOR_HELP = (
+    "Бүлгийн тооцоолол:\n"
+    "<code>@botname CBR:USD/RUB / 2</code>\n\n"
+    "Хадгалсан ханшаа <code>Provider:PAIR</code> хэлбэрээр оруулна. "
+    "Олон утгатай ханшид талбараа нэмнэ: "
+    "<code>TDBM:USD/MNT:noncash_sell</code>."
+)
+
+
+def _mention_expression(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str | None:
+    """Return the expression after an explicit @botname mention, if present."""
+    message = update.message
+    username = ctx.bot.username
+    if message is None or not message.text or not username:
+        return None
+    match = re.match(rf"^@{re.escape(username)}(?=\s|$)\s*", message.text, re.I)
+    return message.text[match.end():].strip() if match else None
+
+
+def _shortlist_calculation_html(expression: str, result: str) -> str:
+    return (
+        "📐 <b>Тооцоолол</b>\n\n"
+        f"{_escape_html(expression)}\n"
+        f"= <code>{_escape_html(result)}</code>"
+    )
+
+
+async def _shortlist_calculator_help(telegram_id: int, username: str | None) -> str:
+    help_text = _GROUP_CALCULATOR_HELP.replace(
+        "@botname", f"@{username or 'botname'}"
+    )
+    rows = await asyncio.to_thread(get_subscriptions, telegram_id)
+    references = [
+        f"{row['provider']}:{row['symbol']}"
+        for row in rows[:20]
+    ]
+    if not references:
+        return help_text + "\n\nЖагсаалт хоосон байна. /add ашиглан ханш нэмнэ үү."
+    choices = "\n".join(f"<code>{_escape_html(item)}</code>" for item in references)
+    suffix = "\n…" if len(rows) > len(references) else ""
+    return help_text + f"\n\nТаны сонгож ашиглах ханш:\n{choices}{suffix}"
+
+
+async def _handle_mentioned_calculation(
+    update: Update, ctx: ContextTypes.DEFAULT_TYPE, expression: str
+) -> None:
+    """Evaluate an explicit @mention expression in a group or direct chat."""
+    message = update.message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    if not expression:
+        await message.reply_text(
+            await _shortlist_calculator_help(user.id, ctx.bot.username),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    try:
+        calculation = await calculate_shortlist_expression(user.id, expression)
+    except ShortlistCalculationError as exc:
+        await message.reply_text(f"❌ {_escape_html(str(exc))}", parse_mode=ParseMode.HTML)
+        return
+    await message.reply_text(
+        _shortlist_calculation_html(calculation.expression, calculation.result),
+        parse_mode=ParseMode.HTML,
+    )
+
 async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Reply-based calculator.
 
@@ -496,6 +572,11 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if not text:
         return
     if not await _check_access(update):
+        return
+
+    mention_expression = _mention_expression(update, ctx)
+    if mention_expression is not None:
+        await _handle_mentioned_calculation(update, ctx, mention_expression)
         return
 
     user_data = ctx.user_data
@@ -903,11 +984,10 @@ async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ── Inline query handler (share via @botname) ─────────────────────
 
 async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle inline queries triggered by the Share button.
+    """Handle saved-rate shares and calculator expressions in inline mode.
 
-    The query string is the rate_id. We fetch the rate, build a formatted
-    InlineQueryResultArticle so the user taps it and it sends the rate
-    to the chosen chat with 'via @botname' attribution.
+    Share buttons provide a rate ID. Any other query is interpreted as a
+    shortlist calculator expression and returns a live result card.
     """
     iq = update.inline_query
     if iq is None:
@@ -918,6 +998,12 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         await iq.answer([], cache_time=0)
         return
 
+    # Three-part IDs are emitted by the existing Share buttons. Everything
+    # else is a calculator expression typed after @botname in a group.
+    is_legacy_rate_share = bool(
+        re.fullmatch(r"[^:\s]+:[^:\s]+:\d+", rate_id)
+    )
+    calculator_result = None
     try:
         if rate_id.startswith("_b:"):
             token = rate_id[3:]
@@ -951,7 +1037,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 await _build_formula_items(), rate_id
             )
             html_text = item[1] if item else "Ханш олдсонгүй."
-        else:
+        elif is_legacy_rate_share:
             parts = rate_id.split(":")
             prov_name = parts[0]
             sym = parts[1]
@@ -972,9 +1058,23 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 rl,
             )
             html_text = header + "\n" + html_line
+        else:
+            if not await asyncio.to_thread(is_whitelisted, iq.from_user.id):
+                raise ShortlistCalculationError("Танд энэ ботыг ашиглах эрх байхгүй байна")
+            calculator_result = await calculate_shortlist_expression(
+                iq.from_user.id, rate_id
+            )
+            html_text = _shortlist_calculation_html(
+                calculator_result.expression, calculator_result.result
+            )
     except Exception as exc:
         log.error("Inline query error for %s: %s", rate_id, exc)
-        html_text = "Ханш татахад алдаа гарлаа."
+        error = (
+            str(exc)
+            if isinstance(exc, ShortlistCalculationError)
+            else "Ханш татахад алдаа гарлаа."
+        )
+        html_text = f"❌ {_escape_html(error)}"
 
     # Strip <tg-emoji> tags (custom emoji won't render in inline results)
     clean_html = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', html_text)
@@ -982,12 +1082,20 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
     # Plain text for the result card title / description
     plain = re.sub(r"<[^>]+>", "", clean_html)
     plain_lines = plain.split("\n")
-    title = plain_lines[0][:80]
-    description = "\n".join(plain_lines[1:])[:120] or "Ханш хуваалцах"
+    title = (
+        f"= {calculator_result.result}"
+        if calculator_result is not None
+        else plain_lines[0][:80]
+    )
+    description = (
+        calculator_result.expression[:120]
+        if calculator_result is not None
+        else "\n".join(plain_lines[1:])[:120] or "Ханш хуваалцах"
+    )
 
     results = [
         InlineQueryResultArticle(
-            id=rate_id[:64],
+            id=hashlib.sha256(rate_id.encode()).hexdigest()[:32],
             title=title,
             description=description,
             input_message_content=InputTextMessageContent(

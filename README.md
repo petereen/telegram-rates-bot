@@ -142,3 +142,19 @@ To deploy updates after pushing new code to GitHub, SSH into the VPS, switch to 
 | `/rates`  | Fetch and display rates for all pairs    |
 | `/clear`  | Remove all pairs from the watchlist      |
 | `/help`   | Show help message                        |
+
+### Group calculator
+
+Add the bot to a group and mention it with a calculator expression. Saved-rate
+operands use `Provider:PAIR[:field]`, so a user can write:
+
+```text
+@your_bot CBR:USD/RUB / 2
+@your_bot TDBM:USD/MNT:noncash_sell * 1.01
+```
+
+The bot resolves only the mentioning user's saved rates and replies with the
+result. The same expression can be entered in Telegram inline mode
+(`@your_bot …`), where its result is shown before the message is sent. For a
+rate with several values, add the displayed field name with spaces and hyphens
+replaced by underscores.

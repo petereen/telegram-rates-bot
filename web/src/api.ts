@@ -18,6 +18,8 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null;
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
+const AUTH_REQUEST_TIMEOUT_MS = 12_000;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
@@ -26,18 +28,36 @@ export function setAccessToken(token: string | null): void {
 async function request<T>(
   path: string,
   options: RequestInit = {},
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
-  const response = await fetch(path, {
-    ...options,
-    credentials: "include",
-    headers: {
-      ...(!(options.body instanceof FormData)
-        ? { "Content-Type": "application/json" }
-        : {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  if (options.signal?.aborted) controller.abort();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      signal: controller.signal,
+      credentials: "include",
+      headers: {
+        ...(!(options.body instanceof FormData)
+          ? { "Content-Type": "application/json" }
+          : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError(408, "Холболтын хугацаа дууслаа. Дахин оролдоно уу.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
   if (!response.ok) {
     let message = "Алдаа гарлаа";
     try {
@@ -56,8 +76,8 @@ export const api = {
     request<{ user: User; accessToken: string }>("/api/auth/mini-app", {
       method: "POST",
       body: JSON.stringify({ initData }),
-    }),
-  me: () => request<{ user: User }>("/api/me"),
+    }, AUTH_REQUEST_TIMEOUT_MS),
+  me: () => request<{ user: User }>("/api/me", {}, AUTH_REQUEST_TIMEOUT_MS),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   rates: () => request<{ rates: RateSnapshot[] }>("/api/rates"),
   searchRates: (query: string) =>

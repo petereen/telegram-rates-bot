@@ -110,7 +110,7 @@ inputs in parallel. `/calc` initially displays:
 
 ```text
 ДЕЛЬКРАДО = MongolBank RUB/MNT × 1.005
-ТРИКУЭТРА = (TDB non-cash USD/MNT sell ÷ CBR USD/RUB) × 1.01
+ТРИКУЭТРА = (TDBM non-cash USD/MNT sell ÷ CBR USD/RUB) × 1.01
 RUB БЭЛЭН = lowest Binance P2P USDT/MNT offer ÷ Rapira USDT/RUB buy
 ```
 
@@ -135,6 +135,15 @@ Provider display values should remain wrapped in backticks before conversion to
 Telegram HTML `<code>` tags. `_extract_code_values()` relies on code entities to
 extract a rate accurately.
 
+## Group and inline calculator
+
+In a group, a whitelisted user can mention the bot with an expression, for
+example `@botname CBR:USD/RUB / 2`. The same expression works in inline mode:
+typing `@botname CBR:USD/RUB / 2` shows the result before it is sent. Rate
+operands must be in that user's saved shortlist and use
+`Provider:PAIR[:field]`. A field is required when a rate has multiple values,
+for example `TDBM:USD/MNT:noncash_sell`.
+
 ## Provider contract and cache
 
 Every provider must:
@@ -153,9 +162,7 @@ still bypass normal cache reads.
 
 Registered through `providers/registry.py`: `CBR`, `XE`, `Binance`, `Rapira`,
 `Profinance`, `BOC`, and all 15 institutions exposed by
-`btseee/mongolian-bank-exchange-rate`. The legacy `TDB` provider remains
-resolvable for stored formulas/subscriptions but is hidden from new watchlists;
-new entries use the upstream `TDBM` code.
+`btseee/mongolian-bank-exchange-rate`, including `TDBM`.
 
 The 15 normalized Mongolian providers require `MONGOLIAN_BANK_API_URL` to point
 to a running instance of that upstream API.

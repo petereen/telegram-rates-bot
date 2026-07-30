@@ -11,7 +11,7 @@ from services.rates import (
 class RateSnapshotTests(unittest.TestCase):
     def test_buy_sell_normalization(self) -> None:
         snapshot = snapshot_from_provider_data(
-            "TDB", "USD/MNT", {"buy": 3500.0, "sell": 3550.5}
+            "TDBM", "USD/MNT", {"buy": 3500.0, "sell": 3550.5}
         )
         self.assertEqual([value.label for value in snapshot.values], ["buy", "sell"])
         self.assertEqual(snapshot.values[1].amount, "3550.5")
@@ -36,7 +36,7 @@ class FormulaTests(unittest.IsolatedAsyncioTestCase):
     async def test_all_formula_results(self) -> None:
         payloads = {
             ("MongolBank", "RUB/MNT"): {"rate": 50, "lines": []},
-            ("TDB", "USD/MNT"): {"sell": 3500, "lines": []},
+            ("TDBM", "USD/MNT"): {"noncash_sell": 3500, "lines": []},
             ("CBR", "USD/RUB"): {"rate": 100, "lines": []},
             ("Binance", "P2P USDT/MNT"): {
                 "rate": 3510,
@@ -73,9 +73,9 @@ class FormulaTests(unittest.IsolatedAsyncioTestCase):
                 "title": "ТРИКУЭТРА",
                 "left_operand": {
                     "kind": "rate",
-                    "provider": "TDB",
+                    "provider": "TDBM",
                     "symbol": "USD/MNT",
-                    "field": "sell",
+                    "field": "noncash_sell",
                 },
                 "operator": "/",
                 "right_operand": {

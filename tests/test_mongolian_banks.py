@@ -30,11 +30,11 @@ class MongolianBankProviderTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         register_all_providers()
 
-    def test_all_upstream_banks_are_visible_and_legacy_tdb_is_hidden(self) -> None:
+    def test_all_upstream_banks_are_visible(self) -> None:
         visible = set(all_providers())
         self.assertTrue(EXPECTED_BANKS <= visible)
-        self.assertNotIn("TDB", visible)
-        self.assertEqual(get_provider("TDB").NAME, "TDB")
+        with self.assertRaises(ValueError):
+            get_provider("TDB")
 
     def test_mongolbank_uses_official_provider(self) -> None:
         provider = get_provider("MongolBank")

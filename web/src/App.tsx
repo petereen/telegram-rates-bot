@@ -1019,7 +1019,7 @@ function FormulaManager({
                 />
               </label>
               <label>
-                <span>Зүүн ханш</span>
+                <span>Ханш</span>
                 <select
                   value={operandKey(draft.left)}
                   onChange={(event) => {
@@ -1052,7 +1052,7 @@ function FormulaManager({
                 </select>
               </label>
               <label>
-                <span>Баруун утгын төрөл</span>
+                <span>Утгын төрөл</span>
                 <select
                   value={draft.right.kind}
                   onChange={(event) =>
@@ -1103,7 +1103,7 @@ function FormulaManager({
               )}
               <div className="formula-editor-grid">
                 <label>
-                  <span>Нэмэлт хувь</span>
+                  <span>Нэмэлт хувь, %</span>
                   <input
                     inputMode="decimal"
                     placeholder="Ж: 1 эсвэл -0.5"
@@ -1117,7 +1117,7 @@ function FormulaManager({
                   />
                 </label>
                 <label>
-                  <span>Аравтын орон</span>
+                  <span>Бүхэлдэх аравтын орон. Ж: 2 гэсэн утга зуутаар бүхэлдэнэ</span>
                   <input
                     type="number"
                     min={0}
@@ -1414,15 +1414,26 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
   const [loadingData, setLoadingData] = useState(true);
+  const [calculatedLoaded, setCalculatedLoaded] = useState(false);
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const [telegramError, setTelegramError] = useState("");
   const [theme, setTheme] = useState<ThemeChoice>(
     () => (localStorage.getItem("rates-theme") as ThemeChoice) || "system",
   );
+  const dataLoadCount = useRef(0);
 
   const notify = useCallback((text: string, error = false) => {
     setToast({ text, error });
     window.setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  const beginDataLoading = useCallback(() => {
+    dataLoadCount.current += 1;
+    setLoadingData(true);
+    return () => {
+      dataLoadCount.current -= 1;
+      if (dataLoadCount.current === 0) setLoadingData(false);
+    };
   }, []);
 
   const loadReferenceData = useCallback(async () => {
@@ -1439,18 +1450,25 @@ export default function App() {
   }, []);
 
   const loadRates = useCallback(async () => {
-    setLoadingData(true);
+    const finishLoading = beginDataLoading();
     try {
-      const [rateData, formulaData] = await Promise.all([
-        api.rates(),
-        api.calculated(),
-      ]);
+      const rateData = await api.rates();
       setRates(rateData.rates);
-      setCalculated(formulaData.rates);
     } finally {
-      setLoadingData(false);
+      finishLoading();
     }
-  }, []);
+  }, [beginDataLoading]);
+
+  const loadCalculated = useCallback(async () => {
+    const finishLoading = beginDataLoading();
+    try {
+      const formulaData = await api.calculated();
+      setCalculated(formulaData.rates);
+      setCalculatedLoaded(true);
+    } finally {
+      finishLoading();
+    }
+  }, [beginDataLoading]);
 
   const bootstrap = useCallback(async () => {
     const initData = getTelegramInitData();
@@ -1469,7 +1487,14 @@ export default function App() {
         setUser(session.user);
       }
       setAuthState("ready");
-      await Promise.all([loadReferenceData(), loadRates()]);
+      // Authentication is enough to enter the shell. Loading formulas can
+      // involve external rate providers, so keep that work out of startup.
+      void Promise.all([loadReferenceData(), loadRates()]).catch((error) =>
+        notify(
+          error instanceof Error ? error.message : "Өгөгдөл ачаалахад алдаа гарлаа",
+          true,
+        ),
+      );
     } catch (error) {
       if (initData) {
         setTelegramError(
@@ -1482,11 +1507,21 @@ export default function App() {
         setAuthState("login");
       }
     }
-  }, [loadRates, loadReferenceData]);
+  }, [loadRates, loadReferenceData, notify]);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    if (authState !== "ready" || tab !== "calculated" || calculatedLoaded) return;
+    void loadCalculated().catch((error) =>
+      notify(
+        error instanceof Error ? error.message : "Томьёо ачаалахад алдаа гарлаа",
+        true,
+      ),
+    );
+  }, [authState, calculatedLoaded, loadCalculated, notify, tab]);
 
   useEffect(() => {
     localStorage.setItem("rates-theme", theme);
@@ -1567,6 +1602,7 @@ export default function App() {
     ]);
     setFormulas(formulaData.formulas);
     setCalculated(calculatedData.rates);
+    setCalculatedLoaded(true);
   };
 
   const doShare = async (
@@ -1670,6 +1706,16 @@ export default function App() {
         <div className="brand-mark">!</div>
         <h1>Telegram өгөгдөл ирсэнгүй</h1>
         <p>{telegramError || "Ботын Menu товч эсвэл Main Mini App холбоосоор дахин нээнэ үү."}</p>
+        <button
+          className="primary-button"
+          onClick={() => {
+            setTelegramError("");
+            setAuthState("loading");
+            void bootstrap();
+          }}
+        >
+          Дахин оролдох
+        </button>
       </main>
     );
   }
