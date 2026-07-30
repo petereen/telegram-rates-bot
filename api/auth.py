@@ -37,7 +37,7 @@ from db.supabase_client import ensure_user
 SESSION_COOKIE = "rates_session"
 OIDC_COOKIE = "rates_oidc"
 API_KEY_COOKIE = "rates_api_key"
-ACCESS_TOKEN_TTL = timedelta(hours=12)
+ACCESS_TOKEN_TTL = timedelta(seconds=SESSION_MAX_AGE)
 OIDC_ISSUER = "https://oauth.telegram.org"
 OIDC_AUTH_URL = f"{OIDC_ISSUER}/auth"
 OIDC_TOKEN_URL = f"{OIDC_ISSUER}/token"
@@ -160,12 +160,7 @@ def _has_api_key_login(cookie: Optional[str]) -> bool:
 
 
 def issue_access_token(user: AuthUser) -> str:
-    """Issue a short-lived bearer token after Telegram initData validation.
-
-    Mini App webviews do not always retain first-party cookies consistently.
-    The frontend keeps this token in memory only; it is never put in local
-    storage or a query string.
-    """
+    """Issue a short-lived bearer token after successful API-key login."""
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {

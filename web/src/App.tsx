@@ -574,7 +574,16 @@ function CalculatorPage({
       setSearching(true);
       void api.searchRates(query)
         .then((data) => {
-          if (sequence === searchSequence.current) setSearchResults(data.rates);
+          if (sequence !== searchSequence.current) return;
+          const normalized = query.toLowerCase();
+          const matchingCalculated = availableRates.filter(
+            (rate) =>
+              rate.kind === "calculated" &&
+              `${rate.source} ${rate.pair} ${rate.formula || ""}`
+                .toLowerCase()
+                .includes(normalized),
+          );
+          setSearchResults(upsertRates(data.rates, matchingCalculated));
         })
         .catch(() => {
           if (sequence === searchSequence.current) setSearchResults([]);
@@ -585,7 +594,7 @@ function CalculatorPage({
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [picker, searchQuery]);
+  }, [availableRates, picker, searchQuery]);
 
   const pickerRates = searchQuery.trim() ? searchResults || [] : availableRates;
 
@@ -1563,7 +1572,11 @@ export default function App() {
   }, [bootstrap]);
 
   useEffect(() => {
-    if (authState !== "ready" || tab !== "calculated" || calculatedLoaded) return;
+    if (
+      authState !== "ready" ||
+      (tab !== "calculated" && tab !== "calculator") ||
+      calculatedLoaded
+    ) return;
     void loadCalculated().catch((error) =>
       notify(
         error instanceof Error ? error.message : "Томьёо ачаалахад алдаа гарлаа",
@@ -1901,7 +1914,7 @@ export default function App() {
         )}
         {tab === "calculator" && (
           <CalculatorPage
-            availableRates={rates}
+            availableRates={upsertRates(rates, calculated)}
             onShare={(tokens, mode) => void doShare([], tokens, mode)}
             notify={notify}
             sourceLogos={branding.sourceLogos}

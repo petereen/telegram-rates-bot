@@ -9,7 +9,11 @@ from typing import Any
 
 from db.supabase_client import get_subscriptions
 from services.calculator import CalculationError, evaluate_tokens
-from services.rates import RateSnapshot, get_rate_snapshot
+from services.rates import (
+    RateSnapshot,
+    get_formula_snapshots,
+    get_rate_snapshot,
+)
 
 
 class ShortlistCalculationError(ValueError):
@@ -86,6 +90,34 @@ def _match_subscription(reference: RateReference, rows: list[dict[str, Any]]) ->
     return match
 
 
+def _is_formula_reference(reference: RateReference) -> bool:
+    return reference.provider.casefold() in {
+        "formula",
+        "calculated",
+        "тооцоолсон",
+    }
+
+
+def _match_formula(
+    reference: RateReference, snapshots: list[RateSnapshot]
+) -> RateSnapshot:
+    target = reference.symbol.casefold()
+    match = next(
+        (
+            snapshot
+            for snapshot in snapshots
+            if snapshot.key.removeprefix("formula:").casefold() == target
+            or snapshot.pair.casefold() == target
+        ),
+        None,
+    )
+    if match is None:
+        raise ShortlistCalculationError(
+            f"Тооцоолсон ханш олдсонгүй: {reference.symbol}"
+        )
+    return match
+
+
 def _select_value(reference: RateReference, snapshot: RateSnapshot) -> tuple[str, str]:
     if snapshot.status == "error" or not snapshot.values:
         raise ShortlistCalculationError(
@@ -122,11 +154,17 @@ def _select_value(reference: RateReference, snapshot: RateSnapshot) -> tuple[str
             )
 
     label = f"{reference.provider}:{reference.symbol}:{value.label.replace(' ', '_').replace('-', '_')}"
+    if _is_formula_reference(reference):
+        label = f"formula:{snapshot.pair}:{value.label.replace(' ', '_').replace('-', '_')}"
     return value.amount, label
 
 
 def _display_reference(reference: str) -> str:
     provider, symbol, field = reference.split(":", 2)
+    if provider.casefold() == "formula":
+        if ":" in field:
+            symbol, field = reference.removeprefix("formula:").rsplit(":", 1)
+        provider = "Тооцоолсон"
     field_label = {
         "value": "ханш",
         "buy": "авах",
@@ -146,23 +184,43 @@ async def calculate_shortlist_expression(
     parsed = parse_shortlist_expression(text)
     references = [token for token in parsed if isinstance(token, RateReference)]
     rows = await asyncio.to_thread(get_subscriptions, telegram_id)
+    formula_references = [
+        reference for reference in references if _is_formula_reference(reference)
+    ]
+    formula_snapshots = (
+        await get_formula_snapshots()
+        if formula_references
+        else []
+    )
 
-    selected: dict[RateReference, dict[str, Any]] = {}
+    selected_rates: dict[RateReference, dict[str, Any]] = {}
+    selected_formulas: dict[RateReference, RateSnapshot] = {}
     for reference in references:
-        selected.setdefault(reference, _match_subscription(reference, rows))
+        if _is_formula_reference(reference):
+            selected_formulas.setdefault(
+                reference, _match_formula(reference, formula_snapshots)
+            )
+        else:
+            selected_rates.setdefault(reference, _match_subscription(reference, rows))
 
     snapshots = await asyncio.gather(
         *(
             asyncio.to_thread(
                 get_rate_snapshot, row["provider"], row["symbol"]
             )
-            for row in selected.values()
+            for row in selected_rates.values()
         )
     )
     resolved = {
         reference: _select_value(reference, snapshot)
-        for reference, snapshot in zip(selected, snapshots)
+        for reference, snapshot in zip(selected_rates, snapshots)
     }
+    resolved.update(
+        {
+            reference: _select_value(reference, snapshot)
+            for reference, snapshot in selected_formulas.items()
+        }
+    )
 
     calculator_tokens: list[str] = []
     display_tokens: list[str] = []

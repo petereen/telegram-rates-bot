@@ -54,6 +54,29 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.resolved_expression, "7.25 × 10")
         self.assertEqual(result.result, "72.5")
 
+    async def test_calculated_formula_can_be_used_as_operand(self) -> None:
+        formula = RateSnapshot(
+            key="formula:delcrado",
+            kind="calculated",
+            source="Тооцоолсон",
+            pair="ДЕЛЬКРАДО",
+            values=[RateValue("value", "50.25")],
+            fetched_at="2026-01-01T00:00:00Z",
+        )
+        with patch(
+            "services.group_calculator.get_subscriptions", return_value=[]
+        ), patch(
+            "services.group_calculator.get_formula_snapshots",
+            return_value=[formula],
+        ):
+            result = await calculate_shortlist_expression(
+                1, "formula:delcrado * 2"
+            )
+
+        self.assertEqual(result.expression, "Тооцоолсон · ДЕЛЬКРАДО (ханш) × 2")
+        self.assertEqual(result.resolved_expression, "50.25 × 2")
+        self.assertEqual(result.result, "100.5")
+
     async def test_resolves_shortlisted_rates_with_shared_precedence(self) -> None:
         def snapshot(provider: str, symbol: str) -> RateSnapshot:
             amounts = {"CBR": "5", "Binance": "10"}

@@ -18,11 +18,24 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null;
+const ACCESS_TOKEN_STORAGE_KEY = "oyuns-rates-access-token";
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
 const AUTH_REQUEST_TIMEOUT_MS = 12_000;
 
+try {
+  accessToken = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+} catch {
+  // Storage may be unavailable in privacy-restricted webviews.
+}
+
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  try {
+    if (token) window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+    else window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  } catch {
+    // The HttpOnly session cookie remains the primary auth mechanism.
+  }
 }
 
 async function request<T>(
@@ -82,7 +95,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ apiKey }),
     }, AUTH_REQUEST_TIMEOUT_MS),
-  me: () => request<{ user: User }>("/api/me", {}, AUTH_REQUEST_TIMEOUT_MS),
+  me: async () => {
+    try {
+      return await request<{ user: User }>("/api/me", {}, AUTH_REQUEST_TIMEOUT_MS);
+    } catch (error) {
+      // A persisted access token may have expired while the HttpOnly cookie
+      // is still valid. Retry once without the token before showing login.
+      if (error instanceof ApiError && error.status === 401 && accessToken) {
+        setAccessToken(null);
+        return request<{ user: User }>("/api/me", {}, AUTH_REQUEST_TIMEOUT_MS);
+      }
+      throw error;
+    }
+  },
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   rates: () => request<{ rates: RateSnapshot[] }>("/api/rates"),
   searchRates: (query: string) =>

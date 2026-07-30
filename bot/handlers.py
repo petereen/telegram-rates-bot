@@ -1053,12 +1053,60 @@ def _inline_rate_html(
     return "\n".join(lines)
 
 
+def _inline_operand_search(search: str) -> str:
+    """Return only the operand being typed after the last operator."""
+    query = search.strip()
+    if not query or query[-1] in "+-*/":
+        return ""
+    match = re.search(r"(?:^|\s)[+*/-]\s*(\S*)$", query)
+    return match.group(1) if match else query
+
+
+def _inline_shortlist_article(
+    snapshot: RateSnapshot,
+    value: RateValue | None,
+    reference: str,
+) -> InlineQueryResultArticle:
+    label = (
+        _INLINE_RATE_LABELS.get(value.label, value.label)
+        if value is not None
+        else "Алдаа"
+    )
+    description = (
+        f"{label}: {value.amount} · {reference}"
+        if value is not None
+        else f"Ханш авах боломжгүй · {reference}"
+    )
+    return InlineQueryResultArticle(
+        id=hashlib.sha256(f"shortlist:{reference}".encode()).hexdigest()[:32],
+        title=f"{snapshot.source} · {snapshot.pair} · {label}",
+        description=description[:120],
+        input_message_content=InputTextMessageContent(
+            message_text=_inline_rate_html(snapshot, value, reference),
+            parse_mode=ParseMode.HTML,
+        ),
+        reply_markup=InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton(
+                    "↩ Томьёонд оруулах",
+                    switch_inline_query_current_chat=f"{reference} ",
+                )
+            ]]
+        ),
+    )
+
+
 async def _inline_shortlist_results(
     telegram_id: int, search: str = ""
 ) -> list[InlineQueryResultArticle]:
     rows = await asyncio.to_thread(get_subscriptions, telegram_id)
     rows = rows[:20]
-    if not rows:
+    try:
+        formula_snapshots = await get_formula_snapshots()
+    except Exception as exc:
+        log.warning("Could not load formula shortlist: %s", exc)
+        formula_snapshots = []
+    if not rows and not formula_snapshots:
         return [
             InlineQueryResultArticle(
                 id="shortlist-empty",
@@ -1075,14 +1123,12 @@ async def _inline_shortlist_results(
 
     fetched = await asyncio.gather(
         *(
-            asyncio.to_thread(
-                get_rate_snapshot, row["provider"], row["symbol"]
-            )
+            asyncio.to_thread(get_rate_snapshot, row["provider"], row["symbol"])
             for row in rows
         ),
         return_exceptions=True,
-    )
-    normalized_search = search.casefold().replace(" ", "")
+    ) if rows else []
+    normalized_search = _inline_operand_search(search).casefold().replace(" ", "")
     results: list[InlineQueryResultArticle] = []
     for row, fetched_snapshot in zip(rows, fetched):
         if isinstance(fetched_snapshot, Exception):
@@ -1102,52 +1148,31 @@ async def _inline_shortlist_results(
         values: list[RateValue | None] = list(snapshot.values) or [None]
         for value in values:
             reference = _inline_rate_reference(snapshot, value)
-            label = (
-                _INLINE_RATE_LABELS.get(value.label, value.label)
-                if value is not None
-                else "Алдаа"
-            )
+            value_label = value.label if value is not None else "error"
             searchable = (
-                f"{snapshot.source}{snapshot.pair}{label}{reference}"
+                f"{snapshot.source}{snapshot.pair}{value_label}{reference}"
                 .casefold()
                 .replace(" ", "")
             )
             if normalized_search and normalized_search not in searchable:
                 continue
-            description = (
-                f"{label}: {value.amount} · {reference}"
-                if value is not None
-                else f"Ханш авах боломжгүй · {reference}"
-            )
-            results.append(
-                InlineQueryResultArticle(
-                    id=hashlib.sha256(
-                        f"shortlist:{reference}".encode()
-                    ).hexdigest()[:32],
-                    title=f"{snapshot.source} · {snapshot.pair} · {label}",
-                    description=description[:120],
-                    input_message_content=InputTextMessageContent(
-                        message_text=_inline_rate_html(
-                            snapshot, value, reference
-                        ),
-                        parse_mode=ParseMode.HTML,
-                    ),
-                    reply_markup=InlineKeyboardMarkup(
-                        [
-                            [
-                                InlineKeyboardButton(
-                                    "↩ Томьёонд оруулах",
-                                    switch_inline_query_current_chat=(
-                                        f"{reference} "
-                                    ),
-                                )
-                            ]
-                        ]
-                    ),
-                )
-            )
+            results.append(_inline_shortlist_article(snapshot, value, reference))
             if len(results) == 40:
                 return results
+
+    for snapshot in formula_snapshots:
+        value = snapshot.values[0] if snapshot.values else None
+        reference = f"formula:{snapshot.key.removeprefix('formula:')}"
+        searchable = (
+            f"{snapshot.source}{snapshot.pair}{reference}"
+            .casefold()
+            .replace(" ", "")
+        )
+        if normalized_search and normalized_search not in searchable:
+            continue
+        results.append(_inline_shortlist_article(snapshot, value, reference))
+        if len(results) == 40:
+            break
     return results
 
 

@@ -202,7 +202,7 @@ describe("App shell", () => {
 
     expect(screen.getByText("Миний хадгалсан ханш")).toBeInTheDocument();
     expect(screen.getByText("USD/RUB")).toBeInTheDocument();
-    expect(screen.queryByText("ДЕЛЬКРАДО")).not.toBeInTheDocument();
+    expect(await screen.findByText("ДЕЛЬКРАДО")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Ханш хайх" }), {
       target: { value: "usd/mnt" },
