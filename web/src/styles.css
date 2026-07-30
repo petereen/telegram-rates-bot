@@ -843,6 +843,55 @@ code {
   max-height: 80dvh;
 }
 
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--muted);
+}
+
+.picker-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.picker-search input::placeholder {
+  color: var(--faint);
+}
+
+.picker-search-clear {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.picker-caption {
+  padding: 13px 1px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.picker-empty {
+  padding: 24px 1px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .picker-row {
   display: grid;
   grid-template-columns: minmax(100px, 1fr) auto;

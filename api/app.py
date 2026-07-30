@@ -46,7 +46,12 @@ from db.supabase_client import (
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
-from services.branding import BrandingError, remove_logo, replace_logo
+from services.branding import (
+    BrandingError,
+    BrandingStorageError,
+    remove_logo,
+    replace_logo,
+)
 from services.calculator import CalculationError, evaluate_tokens, format_hundredths
 from services.rates import (
     FIELD_LABELS,
@@ -258,6 +263,48 @@ async def rates(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
     return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
 
 
+@app.get("/api/rates/search")
+async def search_rates(
+    q: str = Query(..., min_length=1, max_length=80),
+    user: AuthUser = Depends(current_user),
+) -> dict[str, Any]:
+    """Search every visible provider pair and return current matching rates."""
+    query = " ".join(q.split()).casefold()
+    matches: list[tuple[str, str]] = []
+    for name, provider in sorted(all_providers().items()):
+        provider_text = f"{name} {provider.DISPLAY_NAME}".casefold()
+        for symbol, label in provider.PAIRS.items():
+            searchable = f"{provider_text} {symbol} {label}".casefold()
+            if query in searchable:
+                matches.append((name, symbol))
+
+    results = await asyncio.gather(
+        *[
+            asyncio.to_thread(get_rate_snapshot, provider, symbol)
+            for provider, symbol in matches
+        ],
+        return_exceptions=True,
+    )
+    snapshots: list[RateSnapshot] = []
+    for (provider, symbol), result in zip(matches, results):
+        if isinstance(result, Exception):
+            snapshots.append(
+                RateSnapshot(
+                    key=f"rate:{provider}:{symbol}",
+                    kind="subscription",
+                    source=provider,
+                    pair=symbol,
+                    values=[],
+                    fetched_at=datetime.now(timezone.utc).isoformat(),
+                    status="error",
+                    error="Ханш авахад алдаа гарлаа",
+                )
+            )
+        else:
+            snapshots.append(result)
+    return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
+
+
 @app.get("/api/calculated")
 async def calculated(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
     snapshots = await get_formula_snapshots()
@@ -340,6 +387,8 @@ async def upload_app_logo(
         return await asyncio.to_thread(replace_logo, content, content_type)
     except BrandingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BrandingStorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.delete("/api/branding/app-logo")
@@ -362,6 +411,8 @@ async def upload_source_logo(
         )
     except BrandingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BrandingStorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.delete("/api/branding/sources/{provider}")

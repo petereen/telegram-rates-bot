@@ -71,6 +71,7 @@ def _fetch_all_rates() -> dict[str, dict[str, float | None]]:
 @register_provider
 class TDBProvider(BaseProvider):
     NAME = "TDB"
+    CACHE_DAILY = True
     # Kept as a hidden legacy provider so existing formulas and subscriptions
     # continue to resolve. New watchlists use the upstream API's TDBM code.
     VISIBLE = False

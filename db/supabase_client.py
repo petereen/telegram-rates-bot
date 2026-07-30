@@ -247,11 +247,20 @@ def get_daily_cached_rate(
     now = datetime.now(local_tz)
     key = (provider, symbol)
 
+    def usable(data: Any) -> bool:
+        # Providers expose different numeric fields (rate, buy/sell, cash,
+        # non-cash). Error payloads contain only display lines.
+        return isinstance(data, dict) and any(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for field, value in data.items()
+            if field != "lines"
+        )
+
     if key in _mem_cache:
         fetched_at, data = _mem_cache[key]
         if (
             fetched_at.astimezone(local_tz).date() == now.date()
-            and "rate" in data
+            and usable(data)
         ):
             return data
 
@@ -273,9 +282,8 @@ def get_daily_cached_rate(
     data = row.data[0]["rate_data"]
     if isinstance(data, str):
         data = json.loads(data)
-    # A manual refresh can write an error payload through the generic cache
-    # path.  Error payloads must never satisfy the all-day MongolBank cache.
-    if not isinstance(data, dict) or "rate" not in data:
+    # Error payloads must never satisfy an all-day provider cache.
+    if not usable(data):
         return None
     _mem_cache[key] = (fetched_at, data)
     return data  # type: ignore[return-value]

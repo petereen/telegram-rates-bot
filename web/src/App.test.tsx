@@ -19,6 +19,7 @@ vi.mock("./api", async () => {
       me: vi.fn(),
       miniAppLogin: vi.fn(),
       rates: vi.fn(),
+      searchRates: vi.fn(),
       calculated: vi.fn(),
       formulas: vi.fn(),
       branding: vi.fn(),
@@ -44,6 +45,7 @@ describe("App shell", () => {
       user: { telegramId: 1, username: "tester", firstName: "Тест" },
     });
     vi.mocked(api.rates).mockResolvedValue({ rates: [] });
+    vi.mocked(api.searchRates).mockResolvedValue({ rates: [] });
     vi.mocked(api.calculated).mockResolvedValue({
       rates: [
         {
@@ -146,5 +148,66 @@ describe("App shell", () => {
         "hundredths",
       ),
     );
+  });
+
+  it("shows watchlist rates first and searches all sources on demand", async () => {
+    vi.mocked(api.rates).mockResolvedValue({
+      rates: [
+        {
+          key: "rate:CBR:USD/RUB",
+          kind: "subscription",
+          source: "CBR",
+          pair: "USD/RUB",
+          values: [{ label: "value", amount: "80.25" }],
+          details: [],
+          fetchedAt: "2026-07-30T08:00:00Z",
+          status: "fresh",
+        },
+      ],
+    });
+    vi.mocked(api.calculated).mockResolvedValue({
+      rates: [
+        {
+          key: "formula:delcrado",
+          kind: "calculated",
+          source: "Тооцоолсон",
+          pair: "ДЕЛЬКРАДО",
+          values: [{ label: "value", amount: "50.25" }],
+          details: [],
+          fetchedAt: "2026-07-30T08:00:00Z",
+          status: "fresh",
+        },
+      ],
+    });
+    vi.mocked(api.searchRates).mockResolvedValue({
+      rates: [
+        {
+          key: "rate:TDB:USD/MNT",
+          kind: "subscription",
+          source: "TDB",
+          pair: "USD/MNT",
+          values: [{ label: "sell", amount: "3560" }],
+          details: [],
+          fetchedAt: "2026-07-30T08:00:00Z",
+          status: "fresh",
+        },
+      ],
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ханш" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Тооны машин" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: /Ханш сонгож оруулах/ }));
+
+    expect(screen.getByText("Миний хадгалсан ханш")).toBeInTheDocument();
+    expect(screen.getByText("USD/RUB")).toBeInTheDocument();
+    expect(screen.queryByText("ДЕЛЬКРАДО")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Ханш хайх" }), {
+      target: { value: "usd/mnt" },
+    });
+    await waitFor(() => expect(api.searchRates).toHaveBeenCalledWith("usd/mnt"));
+    expect(await screen.findByText("USD/MNT")).toBeInTheDocument();
+    expect(screen.getByText("Бүх эх сурвалж")).toBeInTheDocument();
   });
 });

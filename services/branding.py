@@ -27,6 +27,10 @@ class BrandingError(ValueError):
     pass
 
 
+class BrandingStorageError(RuntimeError):
+    """Raised when Supabase cannot persist or read a branding asset."""
+
+
 def normalize_logo(content: bytes, content_type: str) -> bytes:
     if content_type not in ALLOWED_TYPES:
         raise BrandingError("PNG, JPEG эсвэл WebP зураг оруулна уу")
@@ -55,14 +59,26 @@ def replace_logo(
     provider: str | None = None,
 ) -> dict[str, Any]:
     normalized = normalize_logo(content, content_type)
-    old_path = get_branding_path(provider)
+    try:
+        old_path = get_branding_path(provider)
+    except Exception as exc:
+        log.exception("Could not read existing branding path")
+        raise BrandingStorageError(
+            "Лого хадгалах сан одоогоор ажиллахгүй байна"
+        ) from exc
     prefix = (
         f"sources/{re.sub(r'[^a-z0-9-]+', '-', provider.lower()).strip('-')}"
         if provider
         else "app"
     )
     new_path = f"{prefix}/{uuid.uuid4().hex}.webp"
-    upload_branding_asset(new_path, normalized)
+    try:
+        upload_branding_asset(new_path, normalized)
+    except Exception as exc:
+        log.exception("Could not upload branding asset %s", new_path)
+        raise BrandingStorageError(
+            "Лого хадгалах сан одоогоор ажиллахгүй байна"
+        ) from exc
     try:
         set_branding_path(new_path, provider)
     except Exception:
@@ -70,13 +86,22 @@ def replace_logo(
             delete_branding_asset(new_path)
         except Exception:
             log.exception("Could not roll back branding upload %s", new_path)
-        raise
+        log.exception("Could not save branding metadata for %s", new_path)
+        raise BrandingStorageError(
+            "Лого хадгалах сан одоогоор ажиллахгүй байна"
+        )
     if old_path and old_path != new_path:
         try:
             delete_branding_asset(old_path)
         except Exception:
             log.warning("Could not remove superseded branding asset %s", old_path)
-    return get_branding()
+    try:
+        return get_branding()
+    except Exception as exc:
+        log.exception("Could not read updated branding settings")
+        raise BrandingStorageError(
+            "Лого хадгалах сан одоогоор ажиллахгүй байна"
+        ) from exc
 
 
 def remove_logo(*, provider: str | None = None) -> dict[str, Any]:

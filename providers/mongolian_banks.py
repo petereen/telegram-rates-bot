@@ -77,6 +77,7 @@ def _latest_bank_payload(bank_code: str) -> dict[str, Any]:
 class MongolianBankProvider(BaseProvider):
     """Shared implementation; concrete subclasses only supply bank metadata."""
 
+    CACHE_DAILY = True
     PAIRS = _PAIR_LABELS
     FORMULA_FIELDS = {
         symbol: (

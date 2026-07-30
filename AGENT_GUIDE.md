@@ -145,8 +145,11 @@ Every provider must:
 4. Return at least `{"lines": ["display-ready line"]}`.
 
 `BaseProvider.get_rate()` checks process memory, then Supabase, then performs a
-live fetch. Both successful and error payloads are cached for `CACHE_TTL`
-seconds (default: 300), so failures can appear temporarily cached.
+live fetch. Live market providers use `CACHE_TTL` seconds (default: 300).
+Daily-published bank and central-bank providers set `CACHE_DAILY = True` and
+reuse one successful Supabase snapshot per Ulaanbaatar calendar day. Failed
+daily fetches are not cached for the rest of the day, and manual refreshes
+still bypass normal cache reads.
 
 Registered through `providers/registry.py`: `CBR`, `XE`, `Binance`, `Rapira`,
 `Profinance`, `BOC`, and all 15 institutions exposed by

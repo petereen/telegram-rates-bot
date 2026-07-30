@@ -49,6 +49,7 @@ _CBR_CODE_MAP: dict[str, str] = {
 @register_provider
 class CBRProvider(BaseProvider):
     NAME = "CBR"
+    CACHE_DAILY = True
     PAIRS = {
         "USD/RUB": "US Dollar → Ruble",
         "EUR/RUB": "Euro → Ruble",

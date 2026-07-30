@@ -9,7 +9,6 @@ symbols stable for existing watchlists and cached rates.
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -18,7 +17,6 @@ import requests
 from lxml import etree
 
 from providers.base import BaseProvider, register_provider
-from db.supabase_client import get_daily_cached_rate, set_cached_rate
 
 log = logging.getLogger(__name__)
 
@@ -33,11 +31,6 @@ _ALL_PAIRS: dict[str, str] = {"RUB/MNT": "Рубль ↔ Tögrög"}
 _PAIR_TO_CODE: dict[str, str] = {
     "RUB/MNT": "RUB",
 }
-
-# /rates fetches the watchlist and calculator inputs concurrently.  This lock
-# prevents those simultaneous calls from starting duplicate daily refreshes.
-_daily_refresh_lock = threading.Lock()
-
 
 def _parse_rate(value: object) -> float | None:
     """Convert the API's numeric strings, including comma-separated values."""
@@ -129,38 +122,9 @@ def _fetch_rates() -> dict[str, float]:
 @register_provider
 class MongolBankProvider(BaseProvider):
     NAME = "MongolBank"
+    CACHE_DAILY = True
     PAIRS = _ALL_PAIRS
     FORMULA_FIELDS = {symbol: ("rate",) for symbol in PAIRS}
-
-    def get_rate(self, symbol: str) -> dict[str, Any]:
-        """Return today's stored rate, refreshing it at most once per process.
-
-        Supabase is the durable daily store, so this stays effective across
-        bot restarts as well as across repeated /rates calls.
-        """
-        try:
-            cached = get_daily_cached_rate(self.NAME, symbol)
-            if cached is not None:
-                return cached
-        except Exception as exc:
-            log.warning("MongolBank daily cache read error: %s", exc)
-
-        with _daily_refresh_lock:
-            try:
-                cached = get_daily_cached_rate(self.NAME, symbol)
-                if cached is not None:
-                    return cached
-            except Exception as exc:
-                log.warning("MongolBank daily cache recheck error: %s", exc)
-
-            data = self.fetch(symbol)
-            # Do not turn a transient fetch error into an all-day cached result.
-            if "rate" in data:
-                try:
-                    set_cached_rate(self.NAME, symbol, data)
-                except Exception as exc:
-                    log.warning("MongolBank daily cache write error: %s", exc)
-            return data
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         code = _PAIR_TO_CODE.get(symbol)

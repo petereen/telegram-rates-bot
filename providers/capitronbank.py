@@ -62,6 +62,7 @@ def _fetch_rates() -> dict[str, dict[str, float | None]]:
 @register_provider
 class CapitronBankProvider(BaseProvider):
     NAME = "CapitronBank"
+    CACHE_DAILY = True
     PAIRS = {
         "USD/MNT": "US Dollar ↔ Tögrög",
         "EUR/MNT": "Euro ↔ Tögrög",

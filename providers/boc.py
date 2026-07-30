@@ -73,6 +73,7 @@ def _matches_currency(cell_text: str, symbol: str) -> bool:
 @register_provider
 class BOCProvider(BaseProvider):
     NAME = "BOC"
+    CACHE_DAILY = True
     PAIRS = {
         "USD": "US Dollar (CNY rate)",
         "EUR": "Euro (CNY rate)",

@@ -60,6 +60,10 @@ export const api = {
   me: () => request<{ user: User }>("/api/me"),
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   rates: () => request<{ rates: RateSnapshot[] }>("/api/rates"),
+  searchRates: (query: string) =>
+    request<{ rates: RateSnapshot[] }>(
+      `/api/rates/search?q=${encodeURIComponent(query)}`,
+    ),
   calculated: () => request<{ rates: RateSnapshot[] }>("/api/calculated"),
   formulas: () => request<{ formulas: FormulaDefinition[] }>("/api/formulas"),
   createFormula: (formula: Omit<FormulaDefinition, "id" | "sortOrder" | "updatedAt">) =>

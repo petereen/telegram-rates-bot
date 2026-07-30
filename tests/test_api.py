@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api.auth import AuthUser, current_user
+from services.branding import BrandingStorageError
+from services.rates import RateSnapshot, RateValue
 
 
 class ApiTests(unittest.TestCase):
@@ -49,6 +51,31 @@ class ApiTests(unittest.TestCase):
             json={"provider": "CBR", "symbol": "NOPE/RUB"},
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_rate_search_matches_all_provider_metadata(self) -> None:
+        snapshots = [
+            RateSnapshot(
+                key="rate:TDB:USD/MNT",
+                kind="subscription",
+                source="TDB",
+                pair="USD/MNT",
+                values=[RateValue("sell", "3560")],
+                fetched_at="2026-07-30T00:00:00+00:00",
+            )
+        ]
+        with patch("api.app.all_providers") as providers, patch(
+            "api.app.get_rate_snapshot", return_value=snapshots[0]
+        ) as get_snapshot:
+            provider = type("Provider", (), {
+                "DISPLAY_NAME": "Худалдаа Хөгжлийн Банк",
+                "PAIRS": {"USD/MNT": "US Dollar ↔ Tögrög"},
+            })()
+            providers.return_value = {"TDB": provider}
+            response = self.client.get("/api/rates/search?q=usd/mnt")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rates"][0]["pair"], "USD/MNT")
+        get_snapshot.assert_called_once_with("TDB", "USD/MNT")
 
     def test_formula_create_validates_and_returns_definition(self) -> None:
         row = {
@@ -102,6 +129,18 @@ class ApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_branding_storage_failure_is_not_returned_as_an_opaque_500(self) -> None:
+        with patch(
+            "api.app.replace_logo",
+            side_effect=BrandingStorageError("storage unavailable"),
+        ):
+            response = self.client.put(
+                "/api/branding/app-logo",
+                files={"file": ("logo.png", b"not decoded here", "image/png")},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "storage unavailable")
 
 
 if __name__ == "__main__":
