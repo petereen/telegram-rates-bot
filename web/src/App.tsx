@@ -1750,7 +1750,7 @@ export default function App() {
         <div className="login-rule" />
         <span className="eyebrow">OYUNS ALL-IN-ONE EXCHANGE LEDGER</span>
         <h1>Илүү хялбар..<br />Илүү ойлгомжтой.</h1>
-        <p>Хадгалсан болон тооцоолсон ханшаа харах, тооцоолох, Telegram чат руу цэгцтэй хуваалцах боломжтой.</p>
+        <p>API түлхүүр оруулна уу.</p>
         {!isBrowserLogin ? (
           <form className="api-key-form" onSubmit={submitApiKey}>
             <label htmlFor="app-api-key">API key</label>
