@@ -1519,11 +1519,7 @@ export default function App() {
 
   const bootstrap = useCallback(async () => {
     const initData = getTelegramInitData();
-    if (initData) {
-      setAuthState("api-key");
-      return;
-    }
-    if (isTelegramLaunch()) {
+    if (!initData && isTelegramLaunch()) {
       // A real Mini App must provide signed launch data. Do not silently
       // fall back to browser OIDC when its BotFather launch is misconfigured.
       setAuthState("telegram-error");
@@ -1531,27 +1527,11 @@ export default function App() {
     }
     try {
       const session = await api.me();
-      setUser(session.user);
-      setAuthState("ready");
-      // Authentication is enough to enter the shell. Loading formulas can
-      // involve external rate providers, so keep that work out of startup.
-      void Promise.all([loadReferenceData(), loadRates()]).catch((error) =>
-        notify(
-          error instanceof Error ? error.message : "Өгөгдөл ачаалахад алдаа гарлаа",
-          true,
-        ),
-      );
-    } catch (error) {
-      if (initData) {
-        setTelegramError(
-          error instanceof Error ? error.message : "Telegram нэвтрэхэд алдаа гарлаа",
-        );
-        setAuthState("telegram-error");
-      } else {
-        setAuthState("api-key");
-      }
+      finishLogin(session);
+    } catch {
+      setAuthState("api-key");
     }
-  }, [loadRates, loadReferenceData, notify]);
+  }, [finishLogin]);
 
   const submitApiKey = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {

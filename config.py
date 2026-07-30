@@ -32,6 +32,8 @@ CACHE_TTL: int = int(os.getenv("CACHE_TTL", "300"))
 APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 SESSION_SECRET: str = os.getenv("SESSION_SECRET", TELEGRAM_BOT_TOKEN)
 SESSION_COOKIE_SECURE: bool = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
+# Persistent login session lifetime. The cookie remains HttpOnly and signed.
+SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", str(60 * 60 * 24 * 30)))
 # Telegram's signed Mini App data can be reused when Telegram restores a
 # recently opened webview. Keep the replay window bounded but practical.
 AUTH_MAX_AGE: int = int(os.getenv("AUTH_MAX_AGE", "86400"))

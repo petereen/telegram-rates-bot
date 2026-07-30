@@ -31,6 +31,7 @@ class InlineCalculatorTests(unittest.IsolatedAsyncioTestCase):
             results[0].input_message_content.message_text,
         )
         button = results[1].reply_markup.inline_keyboard[0][0]
+        self.assertEqual(button.text, "↩ Томьёонд оруулах")
         self.assertEqual(
             button.switch_inline_query_current_chat,
             "TDBM:USD/MNT:noncash_sell ",

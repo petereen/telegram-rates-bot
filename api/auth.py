@@ -26,6 +26,7 @@ from config import (
     API_KEY_ALIAS,
     AUTH_MAX_AGE,
     SESSION_COOKIE_SECURE,
+    SESSION_MAX_AGE,
     SESSION_SECRET,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_OIDC_CLIENT_ID,
@@ -108,7 +109,7 @@ def _set_session(response: Response, user: AuthUser) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=60 * 60 * 12,
+        max_age=SESSION_MAX_AGE,
         httponly=True,
         secure=SESSION_COOKIE_SECURE,
         samesite="lax",
@@ -213,7 +214,7 @@ def current_user(
         if not rates_session:
             raise HTTPException(status_code=401, detail="Нэвтэрнэ үү")
         try:
-            payload = serializer.loads(rates_session, max_age=60 * 60 * 12)
+            payload = serializer.loads(rates_session, max_age=SESSION_MAX_AGE)
             if payload.get("auth") != "api-key":
                 raise BadSignature("API key authentication required")
             user = AuthUser(

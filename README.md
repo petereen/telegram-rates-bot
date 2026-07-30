@@ -74,6 +74,7 @@ built React application. Attach an HTTPS domain to the `web` service on port
    APP_BASE_URL=https://rates.example.com
    SESSION_SECRET=replace-with-a-long-random-value
    SESSION_COOKIE_SECURE=true
+   SESSION_MAX_AGE=2592000
    AUTH_MAX_AGE=86400
    MONGOLIAN_BANK_API_URL=https://your-self-hosted-bank-rates-api.example.com
    ```
@@ -148,11 +149,12 @@ To deploy updates after pushing new code to GitHub, SSH into the VPS, switch to 
 ### Group calculator
 
 Add the bot to a group and mention it with a calculator expression. Saved-rate
-operands use `Provider:PAIR[:field]`, so a user can write:
+operands use `Provider:SYMBOL[:field]`, so a user can write:
 
 ```text
 @your_bot CBR:USD/RUB / 2
 @your_bot TDBM:USD/MNT:noncash_sell * 1.01
+@your_bot BOC:USD:buy * 10
 ```
 
 The bot resolves only the mentioning user's saved rates and replies with the

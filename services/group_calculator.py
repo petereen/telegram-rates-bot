@@ -30,10 +30,12 @@ class ShortlistCalculation:
     resolved_expression: str
 
 
-# A reference is deliberately explicit.  A pair alone is not enough because a
-# user can save the same pair from multiple providers.  Examples:
-# CBR:USD/RUB, TDBM:USD/MNT:noncash_sell
-_REFERENCE = r"([A-Za-z0-9_-]+):([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)(?::([A-Za-z0-9_-]+))?"
+# A reference is deliberately explicit. A symbol may be a conventional pair,
+# a single currency (BOC:USD), or contain a provider prefix
+# (Binance:P2P USDT/MNT).
+_SYMBOL_PART = r"[A-Za-z0-9._-]+"
+_SYMBOL = rf"{_SYMBOL_PART}(?: {_SYMBOL_PART})*(?:/{_SYMBOL_PART})?"
+_REFERENCE = rf"([A-Za-z0-9_-]+):({_SYMBOL})(?::([A-Za-z0-9_-]+))?"
 _TOKEN = re.compile(
     rf"\s*(?:{_REFERENCE}|([+-]\d+(?:[.,]\d+)?%)|(\d+(?:[.,]\d+)?|[+*/-]))"
 )

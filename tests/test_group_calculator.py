@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from services.group_calculator import (
+    RateReference,
     ShortlistCalculationError,
     calculate_shortlist_expression,
     parse_shortlist_expression,
@@ -13,6 +14,45 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
     def test_parser_rejects_unrecognised_text(self) -> None:
         with self.assertRaises(ShortlistCalculationError):
             parse_shortlist_expression("CBR:USD/RUB hello 2")
+
+    def test_parser_accepts_single_currency_and_spaced_symbols(self) -> None:
+        single_currency = parse_shortlist_expression("BOC:USD:buy * 10")
+        spaced_symbol = parse_shortlist_expression(
+            "Binance:P2P USDT/MNT:min_price / 2"
+        )
+
+        self.assertEqual(
+            single_currency[0],
+            RateReference("BOC", "USD", "buy"),
+        )
+        self.assertEqual(
+            spaced_symbol[0],
+            RateReference("Binance", "P2P USDT/MNT", "min_price"),
+        )
+
+    async def test_calculates_boc_single_currency_reference(self) -> None:
+        snapshot = RateSnapshot(
+            key="rate:BOC:USD",
+            kind="subscription",
+            source="BOC",
+            pair="USD",
+            values=[RateValue("buy", "7.25"), RateValue("sell", "7.3")],
+            fetched_at="2026-01-01T00:00:00Z",
+        )
+        with patch(
+            "services.group_calculator.get_subscriptions",
+            return_value=[{"provider": "BOC", "symbol": "USD"}],
+        ), patch(
+            "services.group_calculator.get_rate_snapshot",
+            return_value=snapshot,
+        ):
+            result = await calculate_shortlist_expression(
+                1, "BOC:USD:buy * 10"
+            )
+
+        self.assertEqual(result.expression, "BOC · USD (авах) × 10")
+        self.assertEqual(result.resolved_expression, "7.25 × 10")
+        self.assertEqual(result.result, "72.5")
 
     async def test_resolves_shortlisted_rates_with_shared_precedence(self) -> None:
         def snapshot(provider: str, symbol: str) -> RateSnapshot:

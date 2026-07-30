@@ -124,7 +124,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж\n\n"
         "Бүлэгт: @botname CBR:USD/RUB / 2 гэж бичиж тооцоолно. "
-        "Хадгалсан ханшаа Provider:PAIR[:талбар] хэлбэрээр оруулна.",
+        "Хадгалсан ханшаа Provider:SYMBOL[:талбар] хэлбэрээр оруулна.",
         reply_markup=_CALC_KEYBOARD,
     )
 
@@ -144,7 +144,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж\n\n"
         "Бүлэгт: @botname CBR:USD/RUB / 2 гэж бичиж тооцоолно. "
-        "Хадгалсан ханшаа Provider:PAIR[:талбар] хэлбэрээр оруулна.",
+        "Хадгалсан ханшаа Provider:SYMBOL[:талбар] хэлбэрээр оруулна.",
 
     )
 
@@ -500,7 +500,7 @@ def _evaluate_tokens(tokens: list) -> float:
 _GROUP_CALCULATOR_HELP = (
     "Бүлгийн тооцоолол:\n"
     "<code>@botname CBR:USD/RUB / 2</code>\n\n"
-    "Хадгалсан ханшаа <code>Provider:PAIR</code> хэлбэрээр оруулна. "
+    "Хадгалсан ханшаа <code>Provider:SYMBOL</code> хэлбэрээр оруулна. "
     "Олон утгатай ханшид талбараа нэмнэ: "
     "<code>TDBM:USD/MNT:noncash_sell</code>."
 )
@@ -1136,7 +1136,7 @@ async def _inline_shortlist_results(
                         [
                             [
                                 InlineKeyboardButton(
-                                    "🧮 Тооцоолох",
+                                    "↩ Томьёонд оруулах",
                                     switch_inline_query_current_chat=(
                                         f"{reference} "
                                     ),
