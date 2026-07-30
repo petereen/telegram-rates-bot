@@ -1095,6 +1095,29 @@ code {
   color: var(--success);
 }
 
+.formula-draft-preview {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent-soft);
+}
+
+.formula-draft-preview span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.formula-draft-preview output {
+  overflow-wrap: anywhere;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .formula-editor {
   display: grid;
   gap: 13px;

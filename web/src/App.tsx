@@ -837,6 +837,25 @@ function FormulaManager({
     operand.kind === "rate"
       ? `${operand.provider}\u001f${operand.symbol}\u001f${operand.field}`
       : "";
+  const operandLabel = (operand: FormulaOperand) => {
+    if (operand.kind === "constant") return operand.value || "—";
+    return (
+      options.find((option) => option.key === operandKey(operand))?.label ||
+      `${operand.provider} · ${operand.symbol} · ${operand.field}`
+    );
+  };
+  const draftPreview = draft
+    ? [
+        operandLabel(draft.left),
+        { "*": "×", "/": "÷", "+": "+", "-": "−" }[draft.operator],
+        operandLabel(draft.right),
+        draft.adjustmentPercent
+          ? `${Number(draft.adjustmentPercent) > 0 ? "+" : ""}${draft.adjustmentPercent}%`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
 
   const save = async () => {
     if (!draft) return;
@@ -1007,90 +1026,29 @@ function FormulaManager({
               </div>
             </>
           ) : (
-            <div className="formula-editor">
-              <label>
-                <span>Нэр</span>
-                <input
-                  maxLength={80}
-                  value={draft.title}
-                  onChange={(event) =>
-                    setDraft({ ...draft, title: event.target.value })
-                  }
-                />
-              </label>
-              <label>
-                <span>Ханш</span>
-                <select
-                  value={operandKey(draft.left)}
-                  onChange={(event) => {
-                    const selected = chooseRate(event.target.value);
-                    if (selected) setDraft({ ...draft, left: selected });
-                  }}
-                >
-                  {options.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Үйлдэл</span>
-                <select
-                  value={draft.operator}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      operator: event.target.value as FormulaDraft["operator"],
-                    })
-                  }
-                >
-                  <option value="+">+</option>
-                  <option value="-">−</option>
-                  <option value="*">×</option>
-                  <option value="/">÷</option>
-                </select>
-              </label>
-              <label>
-                <span>Утгын төрөл</span>
-                <select
-                  value={draft.right.kind}
-                  onChange={(event) =>
-                    setDraft({
-                      ...draft,
-                      right:
-                        event.target.value === "constant"
-                          ? { kind: "constant", value: "1" }
-                          : options[0].operand,
-                    })
-                  }
-                >
-                  <option value="constant">Тогтмол тоо</option>
-                  <option value="rate">Ханш</option>
-                </select>
-              </label>
-              {draft.right.kind === "constant" ? (
+            <>
+              <div className="formula-draft-preview" aria-live="polite">
+                <span>Одоогийн томьёо</span>
+                <output>{draftPreview}</output>
+              </div>
+              <div className="formula-editor">
                 <label>
-                  <span>Тогтмол утга</span>
+                  <span>Нэр</span>
                   <input
-                    inputMode="decimal"
-                    value={draft.right.value}
+                    maxLength={80}
+                    value={draft.title}
                     onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        right: { kind: "constant", value: event.target.value },
-                      })
+                      setDraft({ ...draft, title: event.target.value })
                     }
                   />
                 </label>
-              ) : (
                 <label>
-                  <span>Баруун ханш</span>
+                  <span>Ханш</span>
                   <select
-                    value={operandKey(draft.right)}
+                    value={operandKey(draft.left)}
                     onChange={(event) => {
                       const selected = chooseRate(event.target.value);
-                      if (selected) setDraft({ ...draft, right: selected });
+                      if (selected) setDraft({ ...draft, left: selected });
                     }}
                   >
                     {options.map((option) => (
@@ -1100,67 +1058,134 @@ function FormulaManager({
                     ))}
                   </select>
                 </label>
-              )}
-              <div className="formula-editor-grid">
                 <label>
-                  <span>Нэмэлт хувь, %</span>
-                  <input
-                    inputMode="decimal"
-                    placeholder="Ж: 1 эсвэл -0.5"
-                    value={draft.adjustmentPercent || ""}
+                  <span>Үйлдэл</span>
+                  <select
+                    value={draft.operator}
                     onChange={(event) =>
                       setDraft({
                         ...draft,
-                        adjustmentPercent: event.target.value || null,
+                        operator: event.target.value as FormulaDraft["operator"],
                       })
                     }
-                  />
+                  >
+                    <option value="+">+</option>
+                    <option value="-">−</option>
+                    <option value="*">×</option>
+                    <option value="/">÷</option>
+                  </select>
                 </label>
                 <label>
-                  <span>Бүхэлдэх аравтын орон. Ж: 2 гэсэн утга зуутаар бүхэлдэнэ</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={8}
-                    value={draft.precision}
+                  <span>Утгын төрөл</span>
+                  <select
+                    value={draft.right.kind}
                     onChange={(event) =>
                       setDraft({
                         ...draft,
-                        precision: Number(event.target.value),
+                        right:
+                          event.target.value === "constant"
+                            ? { kind: "constant", value: "1" }
+                            : options[0].operand,
                       })
                     }
-                  />
+                  >
+                    <option value="constant">Тогтмол тоо</option>
+                    <option value="rate">Ханш</option>
+                  </select>
                 </label>
+                {draft.right.kind === "constant" ? (
+                  <label>
+                    <span>Тогтмол утга</span>
+                    <input
+                      inputMode="decimal"
+                      value={draft.right.value}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          right: { kind: "constant", value: event.target.value },
+                        })
+                      }
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    <span>Баруун ханш</span>
+                    <select
+                      value={operandKey(draft.right)}
+                      onChange={(event) => {
+                        const selected = chooseRate(event.target.value);
+                        if (selected) setDraft({ ...draft, right: selected });
+                      }}
+                    >
+                      {options.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <div className="formula-editor-grid">
+                  <label>
+                    <span>Нэмэлт хувь, %</span>
+                    <input
+                      inputMode="decimal"
+                      placeholder="Ж: 1 эсвэл -0.5"
+                      value={draft.adjustmentPercent || ""}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          adjustmentPercent: event.target.value || null,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Бүхэлдэх аравтын орон. Ж: 2 гэсэн утга зуутаар бүхэлдэнэ</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={8}
+                      value={draft.precision}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          precision: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="formula-enabled">
+                  <input
+                    type="checkbox"
+                    checked={draft.enabled}
+                    onChange={(event) =>
+                      setDraft({ ...draft, enabled: event.target.checked })
+                    }
+                  />
+                  <span>Идэвхтэй</span>
+                </label>
+                <div className="formula-editor-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setDraft(null);
+                      setEditingId(null);
+                    }}
+                  >
+                    Болих
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={busy || !draft.title.trim()}
+                    onClick={() => void save()}
+                  >
+                    Хадгалах
+                  </button>
+                </div>
               </div>
-              <label className="formula-enabled">
-                <input
-                  type="checkbox"
-                  checked={draft.enabled}
-                  onChange={(event) =>
-                    setDraft({ ...draft, enabled: event.target.checked })
-                  }
-                />
-                <span>Идэвхтэй</span>
-              </label>
-              <div className="formula-editor-actions">
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    setDraft(null);
-                    setEditingId(null);
-                  }}
-                >
-                  Болих
-                </button>
-                <button
-                  className="primary-button"
-                  disabled={busy || !draft.title.trim()}
-                  onClick={() => void save()}
-                >
-                  Хадгалах
-                </button>
-              </div>
-            </div>
+            </>
           )}
         </div>
       </section>

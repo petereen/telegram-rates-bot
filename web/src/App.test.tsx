@@ -211,4 +211,43 @@ describe("App shell", () => {
     expect(await screen.findByText("USD/MNT")).toBeInTheDocument();
     expect(screen.getByText("Бүх эх сурвалж")).toBeInTheDocument();
   });
+
+  it("shows and updates the current formula draft above the editor", async () => {
+    vi.mocked(api.catalog).mockResolvedValue({
+      providers: [
+        {
+          name: "MongolBank",
+          label: "Монголбанк",
+          pairs: [
+            {
+              symbol: "RUB/MNT",
+              label: "Оросын рубль",
+              subscribed: false,
+              formulaFields: [{ key: "rate", label: "ханш" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ханш" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Тооцоолсон" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Томьёо удирдах" }));
+    fireEvent.click(screen.getByRole("button", { name: "Шинэ томьёо" }));
+
+    const preview = screen.getByText("Одоогийн томьёо").nextElementSibling;
+    expect(preview).toHaveTextContent("Монголбанк · RUB/MNT · ханш × 1");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Тогтмол утга" }), {
+      target: { value: "1.005" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Нэмэлт хувь, %" }), {
+      target: { value: "0.5" },
+    });
+
+    expect(preview).toHaveTextContent(
+      "Монголбанк · RUB/MNT · ханш × 1.005 +0.5%",
+    );
+  });
 });
