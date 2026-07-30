@@ -82,6 +82,10 @@ class BinanceProvider(BaseProvider):
         "P2P ETH/RUB":  "P2P ETH → RUB (median)",
         "P2P USDT/MNT": "P2P USDT → MNT (median)",
     }
+    FORMULA_FIELDS = {
+        symbol: (("rate", "min_price") if symbol in _P2P_PAIRS else ("rate",))
+        for symbol in PAIRS
+    }
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         if symbol in _SPOT_SYMBOLS:

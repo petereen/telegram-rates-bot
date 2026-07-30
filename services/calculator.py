@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, DivisionByZero, InvalidOperation
+from decimal import Decimal, DivisionByZero, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 OPERATORS = {"+", "-", "*", "/"}
@@ -58,6 +58,12 @@ def format_decimal(value: Decimal) -> str:
     if value == value.to_integral():
         return format(value.quantize(Decimal("1")), "f")
     return format(value.normalize(), "f").rstrip("0").rstrip(".")
+
+
+def format_hundredths(value: Decimal | str) -> str:
+    """Round half-up and retain exactly two fractional digits."""
+    number = value if isinstance(value, Decimal) else _decimal(value)
+    return format(number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f")
 
 
 def evaluate_tokens(raw_tokens: list[Any]) -> dict[str, str]:

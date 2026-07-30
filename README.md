@@ -6,7 +6,9 @@ The backend uses **python-telegram-bot**, **FastAPI**, and **Supabase**; the
 frontend uses **React**, **TypeScript**, and **Vite**.
 
 The Mini App and browser UI share four sections: **Ханш**, **Тооцоолсон**,
-**Тооны машин**, and **Тохиргоо**. Existing bot commands remain available.
+**Тооны машин**, and **Тохиргоо**. Whitelisted users can globally manage
+calculated formulas from **Тооцоолсон** and app/source logos from
+**Тохиргоо**. Existing bot commands remain available.
 
 ## Project Structure
 
@@ -39,8 +41,11 @@ telegram-rates-bot/
 ## Supabase Setup
 
 Open the Supabase SQL Editor and run every statement in `schema.sql`. This
-creates the user, subscription, whitelist, cache, and short-lived share-bundle
-tables. Existing subscription and cache keys remain unchanged.
+creates the user, subscription, whitelist, cache, short-lived share-bundle,
+global formula, and branding tables, seeds the three original formulas, and
+creates the public `branding` Storage bucket. Existing subscription and cache
+keys remain unchanged. The backend `SUPABASE_KEY` must be allowed to upload and
+delete Storage objects; never expose that key to the browser.
 
 ## Dokploy Deployment
 
@@ -64,7 +69,8 @@ built React application. Attach an HTTPS domain to the `web` service on port
    APP_BASE_URL=https://rates.example.com
    SESSION_SECRET=replace-with-a-long-random-value
    SESSION_COOKIE_SECURE=true
-   AUTH_MAX_AGE=900
+   AUTH_MAX_AGE=86400
+   MONGOLIAN_BANK_API_URL=https://your-self-hosted-bank-rates-api.example.com
    ```
 
 4. Apply `schema.sql`, deploy, and configure BotFather with the public domain,
@@ -74,6 +80,9 @@ built React application. Attach an HTTPS domain to the `web` service on port
    `{"status":"ok"}` on the web domain.
 
 Do not run another polling instance with the same Telegram token.
+`MONGOLIAN_BANK_API_URL` must point to a deployed instance of
+[`btseee/mongolian-bank-exchange-rate`](https://github.com/btseee/mongolian-bank-exchange-rate);
+its former public Heroku deployment is no longer available.
 
 ## Local Development
 

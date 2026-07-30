@@ -1,5 +1,8 @@
 import type {
+  BrandingSettings,
+  CalculationShareMode,
   CatalogProvider,
+  FormulaDefinition,
   RateSnapshot,
   Subscription,
   User,
@@ -14,6 +17,12 @@ export class ApiError extends Error {
   }
 }
 
+let accessToken: string | null = null;
+
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -22,7 +31,10 @@ async function request<T>(
     ...options,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(!(options.body instanceof FormData)
+        ? { "Content-Type": "application/json" }
+        : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(options.headers || {}),
     },
   });
@@ -41,7 +53,7 @@ async function request<T>(
 
 export const api = {
   miniAppLogin: (initData: string) =>
-    request<{ user: User }>("/api/auth/mini-app", {
+    request<{ user: User; accessToken: string }>("/api/auth/mini-app", {
       method: "POST",
       body: JSON.stringify({ initData }),
     }),
@@ -49,6 +61,51 @@ export const api = {
   logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
   rates: () => request<{ rates: RateSnapshot[] }>("/api/rates"),
   calculated: () => request<{ rates: RateSnapshot[] }>("/api/calculated"),
+  formulas: () => request<{ formulas: FormulaDefinition[] }>("/api/formulas"),
+  createFormula: (formula: Omit<FormulaDefinition, "id" | "sortOrder" | "updatedAt">) =>
+    request<{ formula: FormulaDefinition }>("/api/formulas", {
+      method: "POST",
+      body: JSON.stringify(formula),
+    }),
+  updateFormula: (
+    id: string,
+    formula: Omit<FormulaDefinition, "id" | "sortOrder" | "updatedAt">,
+  ) =>
+    request<{ formula: FormulaDefinition }>(`/api/formulas/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(formula),
+    }),
+  deleteFormula: (id: string) =>
+    request<{ removed: boolean }>(`/api/formulas/${id}`, { method: "DELETE" }),
+  orderFormulas: (ids: string[]) =>
+    request<{ formulas: FormulaDefinition[] }>("/api/formulas/order", {
+      method: "PUT",
+      body: JSON.stringify({ ids }),
+    }),
+  branding: () => request<BrandingSettings>("/api/branding"),
+  uploadAppLogo: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<BrandingSettings>("/api/branding/app-logo", {
+      method: "PUT",
+      body,
+    });
+  },
+  deleteAppLogo: () =>
+    request<BrandingSettings>("/api/branding/app-logo", { method: "DELETE" }),
+  uploadSourceLogo: (provider: string, file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<BrandingSettings>(
+      `/api/branding/sources/${encodeURIComponent(provider)}`,
+      { method: "PUT", body },
+    );
+  },
+  deleteSourceLogo: (provider: string) =>
+    request<BrandingSettings>(
+      `/api/branding/sources/${encodeURIComponent(provider)}`,
+      { method: "DELETE" },
+    ),
   catalog: () => request<{ providers: CatalogProvider[] }>("/api/catalog"),
   subscriptions: () =>
     request<{ subscriptions: Subscription[] }>("/api/subscriptions"),
@@ -73,7 +130,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ tokens }),
     }),
-  share: (rateKeys: string[], calculationTokens?: Array<string | number>) =>
+  share: (
+    rateKeys: string[],
+    calculationTokens?: Array<string | number>,
+    calculationResultMode: CalculationShareMode = "full",
+  ) =>
     request<{
       preparedMessageId: string;
       inlineQuery: string;
@@ -81,7 +142,11 @@ export const api = {
       inlineFallback: string | null;
     }>("/api/shares", {
       method: "POST",
-      body: JSON.stringify({ rateKeys, calculationTokens }),
+      body: JSON.stringify({
+        rateKeys,
+        calculationTokens,
+        calculationResultMode,
+      }),
     }),
   prepareBundle: (token: string) =>
     request<{ preparedMessageId: string }>(`/api/shares/${token}/prepare`, {

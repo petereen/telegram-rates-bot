@@ -70,7 +70,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   color: inherit;
   font: inherit;
 }
@@ -216,6 +217,30 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+.group-heading > span:first-child,
+.catalog-provider,
+.picker-row small {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.source-logo {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.logo-fallback {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--faint);
+}
+
 .rate-row {
   position: relative;
   display: grid;
@@ -226,6 +251,7 @@ code {
   padding: 15px 2px;
   border-bottom: 1px solid var(--rule);
   transition: background 150ms ease;
+  touch-action: pan-y;
 }
 
 .rate-row.is-selected {
@@ -508,6 +534,7 @@ code {
   border-radius: 10px 10px 0 0;
   background: var(--paper-raised);
   box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
 }
 
 .sheet-handle {
@@ -525,6 +552,7 @@ code {
   margin-bottom: 17px;
   padding-bottom: 15px;
   border-bottom: 1px solid var(--rule-strong);
+  flex: 0 0 auto;
 }
 
 .search-field {
@@ -536,6 +564,7 @@ code {
   border: 1px solid var(--rule-strong);
   border-radius: 4px;
   color: var(--muted);
+  flex: 0 0 auto;
 }
 
 .search-field:focus-within {
@@ -556,10 +585,16 @@ code {
   padding: 0 18px 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  flex: 0 0 auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .filter-strip button {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
   height: 30px;
   padding: 0 10px;
   border: 1px solid var(--rule);
@@ -567,6 +602,11 @@ code {
   background: transparent;
   color: var(--muted);
   font-size: 11px;
+}
+
+.filter-strip .source-logo {
+  width: 17px;
+  height: 17px;
 }
 
 .filter-strip button.active {
@@ -577,7 +617,11 @@ code {
 
 .catalog-list,
 .picker-list {
+  min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .catalog-provider {
@@ -592,6 +636,11 @@ code {
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.catalog-provider .source-logo {
+  width: 19px;
+  height: 19px;
 }
 
 .catalog-row {
@@ -665,6 +714,8 @@ code {
   padding: 20px 2px;
   border-top: 1px solid var(--rule-strong);
   border-bottom: 1px solid var(--rule-strong);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .expression-display > span {
@@ -684,14 +735,37 @@ code {
 }
 
 .expression-display > strong {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
   color: var(--accent);
   font-family: "IBM Plex Mono", monospace;
-  font-size: 34px;
+  font-size: clamp(21px, 7vw, 34px);
   font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-align: right;
+  white-space: normal;
+  scrollbar-width: thin;
 }
 
 .expression-display code {
   font: inherit;
+  overflow-wrap: anywhere;
+}
+
+.calculation-share-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.calculation-share-actions button {
+  width: 100%;
 }
 
 .rate-picker-button {
@@ -788,6 +862,11 @@ code {
   font-size: 9px;
 }
 
+.picker-row small .source-logo {
+  width: 16px;
+  height: 16px;
+}
+
 .picker-row > div {
   display: flex;
   gap: 6px;
@@ -813,6 +892,218 @@ code {
   margin-bottom: 27px;
   padding-top: 10px;
   border-top: 1px solid var(--rule-strong);
+}
+
+.settings-disclosure {
+  display: flex;
+  width: 100%;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+}
+
+.settings-disclosure > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.branding-manager {
+  display: grid;
+  gap: 1px;
+  padding-top: 10px;
+}
+
+.branding-manager > p {
+  padding: 7px 2px 13px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.branding-row {
+  display: grid;
+  grid-template-columns: 38px minmax(90px, 1fr) auto auto;
+  min-height: 56px;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.branding-row strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.branding-preview {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  object-fit: contain;
+  overflow: hidden;
+}
+
+.branding-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.upload-button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.upload-button input {
+  display: none;
+}
+
+.danger-icon {
+  color: var(--danger);
+}
+
+.formula-manager-sheet {
+  max-height: min(92dvh, 900px);
+}
+
+.formula-manager-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.formula-add-button {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.formula-definition-list {
+  display: grid;
+}
+
+.formula-definition-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 8px 1px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.formula-definition-row.disabled {
+  opacity: 0.58;
+}
+
+.formula-definition-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.formula-definition-row small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.formula-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.compact-toggle {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.compact-toggle.active {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.formula-editor {
+  display: grid;
+  gap: 13px;
+}
+
+.formula-editor label {
+  display: grid;
+  gap: 6px;
+}
+
+.formula-editor label > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.formula-editor input:not([type="checkbox"]),
+.formula-editor select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  outline: none;
+  background: var(--paper);
+}
+
+.formula-editor input:focus,
+.formula-editor select:focus {
+  border-color: var(--accent);
+}
+
+.formula-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.formula-editor .formula-enabled {
+  display: flex;
+  align-items: center;
+}
+
+.formula-editor-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 5px;
+}
+
+.has-image {
+  overflow: hidden;
+  padding: 3px;
+}
+
+.has-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .profile-line {
@@ -1082,6 +1373,35 @@ code {
 
   .picker-row {
     grid-template-columns: 1fr;
+  }
+
+  .formula-definition-row {
+    grid-template-columns: 1fr;
+  }
+
+  .formula-row-actions {
+    justify-content: flex-end;
+  }
+
+  .branding-row {
+    grid-template-columns: 34px minmax(70px, 1fr) auto auto;
+    gap: 6px;
+  }
+
+  .upload-button {
+    padding: 0 7px;
+  }
+}
+
+@media (max-height: 560px) {
+  .sheet,
+  .formula-manager-sheet {
+    max-height: calc(100dvh - env(safe-area-inset-top));
+  }
+
+  .sheet-header {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
   }
 }
 

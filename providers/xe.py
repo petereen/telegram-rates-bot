@@ -64,6 +64,7 @@ class XEProvider(BaseProvider):
         "EUR/CNY": "Euro → Yuan",
         "GBP/CNY": "Pound → Yuan",
     }
+    FORMULA_FIELDS = {symbol: ("rate",) for symbol in PAIRS}
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         base, counter = symbol.split("/")

@@ -4,10 +4,17 @@ import json
 import time
 import unittest
 from urllib.parse import urlencode
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from api.auth import TELEGRAM_BOT_TOKEN, validate_mini_app_data
+from api.auth import (
+    TELEGRAM_BOT_TOKEN,
+    AuthUser,
+    current_user,
+    issue_access_token,
+    validate_mini_app_data,
+)
 
 
 def signed_init_data(user_id: int, auth_date: int) -> str:
@@ -46,6 +53,13 @@ class MiniAppAuthTests(unittest.TestCase):
         data = signed_init_data(12345, int(time.time()) - 120)
         with self.assertRaises(HTTPException):
             validate_mini_app_data(data, max_age=60)
+
+    @patch("api.auth.is_whitelisted", return_value=True)
+    def test_mini_app_access_token_authenticates_requests(self, _whitelist) -> None:
+        token = issue_access_token(AuthUser(12345, "tester", "Test"))
+        user = current_user(None, f"Bearer {token}")
+        self.assertEqual(user.telegram_id, 12345)
+        self.assertEqual(user.username, "tester")
 
 
 if __name__ == "__main__":

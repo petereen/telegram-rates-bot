@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -338,3 +339,169 @@ def get_share_bundle(telegram_id: int, token: str) -> dict[str, Any] | None:
         return None
     payload = row["payload"]
     return json.loads(payload) if isinstance(payload, str) else payload
+
+
+# ── Global calculated formulas ────────────────────────────────────────
+
+def get_formula_definitions(*, include_disabled: bool = True) -> list[dict[str, Any]]:
+    sb = _get_client()
+    query = (
+        sb.table("calculated_formulas")
+        .select(
+            "id,title,left_operand,operator,right_operand,adjustment_percent,"
+            "precision,enabled,sort_order,created_at,updated_at"
+        )
+        .is_("deleted_at", "null")
+    )
+    if not include_disabled:
+        query = query.eq("enabled", True)
+    result = query.order("sort_order").order("created_at").execute()
+    return result.data  # type: ignore[return-value]
+
+
+def create_formula_definition(data: dict[str, Any]) -> dict[str, Any]:
+    sb = _get_client()
+    formula_id = str(uuid.uuid4())
+    current = get_formula_definitions()
+    row = {
+        **data,
+        "id": formula_id,
+        "sort_order": max((int(item["sort_order"]) for item in current), default=-1) + 1,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = sb.table("calculated_formulas").insert(row).execute()
+    return result.data[0]  # type: ignore[return-value]
+
+
+def update_formula_definition(formula_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+    sb = _get_client()
+    result = (
+        sb.table("calculated_formulas")
+        .update({**data, "updated_at": datetime.now(timezone.utc).isoformat()})
+        .eq("id", formula_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def reorder_formula_definitions(ids: list[str]) -> list[dict[str, Any]]:
+    sb = _get_client()
+    now = datetime.now(timezone.utc).isoformat()
+    for index, formula_id in enumerate(ids):
+        (
+            sb.table("calculated_formulas")
+            .update({"sort_order": index, "updated_at": now})
+            .eq("id", formula_id)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+    return get_formula_definitions()
+
+
+def soft_delete_formula_definition(formula_id: str) -> bool:
+    sb = _get_client()
+    now = datetime.now(timezone.utc).isoformat()
+    result = (
+        sb.table("calculated_formulas")
+        .update({"deleted_at": now, "updated_at": now})
+        .eq("id", formula_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    return bool(result.data)
+
+
+# ── Global branding ───────────────────────────────────────────────────
+
+def _public_branding_url(path: str | None) -> str | None:
+    if not path:
+        return None
+    return _get_client().storage.from_("branding").get_public_url(path)
+
+
+def get_branding() -> dict[str, Any]:
+    sb = _get_client()
+    app_result = (
+        sb.table("app_branding")
+        .select("logo_path,updated_at")
+        .eq("singleton", True)
+        .limit(1)
+        .execute()
+    )
+    source_result = (
+        sb.table("source_branding")
+        .select("provider,logo_path,updated_at")
+        .execute()
+    )
+    app_row = app_result.data[0] if app_result.data else {}
+    app_path = app_row.get("logo_path")
+    sources = {
+        row["provider"]: {
+            "url": _public_branding_url(row.get("logo_path")),
+            "updatedAt": row.get("updated_at"),
+        }
+        for row in source_result.data
+        if row.get("logo_path")
+    }
+    return {
+        "appLogoUrl": _public_branding_url(app_path),
+        "appUpdatedAt": app_row.get("updated_at"),
+        "sourceLogos": sources,
+    }
+
+
+def get_branding_path(provider: str | None = None) -> str | None:
+    sb = _get_client()
+    if provider is None:
+        result = (
+            sb.table("app_branding")
+            .select("logo_path")
+            .eq("singleton", True)
+            .limit(1)
+            .execute()
+        )
+    else:
+        result = (
+            sb.table("source_branding")
+            .select("logo_path")
+            .eq("provider", provider)
+            .limit(1)
+            .execute()
+        )
+    return result.data[0].get("logo_path") if result.data else None
+
+
+def set_branding_path(path: str | None, provider: str | None = None) -> None:
+    sb = _get_client()
+    now = datetime.now(timezone.utc).isoformat()
+    if provider is None:
+        (
+            sb.table("app_branding")
+            .upsert(
+                {"singleton": True, "logo_path": path, "updated_at": now},
+                on_conflict="singleton",
+            )
+            .execute()
+        )
+    else:
+        (
+            sb.table("source_branding")
+            .upsert(
+                {"provider": provider, "logo_path": path, "updated_at": now},
+                on_conflict="provider",
+            )
+            .execute()
+        )
+
+
+def upload_branding_asset(path: str, content: bytes) -> None:
+    _get_client().storage.from_("branding").upload(
+        path,
+        content,
+        file_options={"content-type": "image/webp", "upsert": "true"},
+    )
+
+
+def delete_branding_asset(path: str) -> None:
+    _get_client().storage.from_("branding").remove([path])

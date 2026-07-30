@@ -92,6 +92,7 @@ class ProfinanceProvider(BaseProvider):
         "USD/CHF": "Dollar / Franc (Forex)",
         "USD/JPY": "Dollar / Yen (Forex)",
     }
+    FORMULA_FIELDS = {symbol: ("buy", "sell") for symbol in PAIRS}
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         if symbol not in _PAIR_SLUG:

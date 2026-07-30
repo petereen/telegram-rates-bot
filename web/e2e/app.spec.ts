@@ -7,7 +7,22 @@ test.beforeEach(async ({ page }) => {
       "/api/me": {
         user: { telegramId: 1, username: "tester", firstName: "Тест" },
       },
-      "/api/catalog": { providers: [] },
+      "/api/catalog": {
+        providers: Array.from({ length: 12 }, (_, index) => ({
+          name: `Source${index + 1}`,
+          label: `Source ${index + 1}`,
+          pairs: [
+            {
+              symbol: `P${index + 1}/MNT`,
+              label: `Pair ${index + 1}`,
+              subscribed: false,
+              formulaFields: [{ key: "rate", label: "ханш" }],
+            },
+          ],
+        })),
+      },
+      "/api/formulas": { formulas: [] },
+      "/api/branding": { appLogoUrl: null, sourceLogos: {} },
       "/api/subscriptions": { subscriptions: [] },
       "/api/rates": { rates: [] },
       "/api/calculated": {
@@ -41,4 +56,16 @@ test("navigates between the four primary areas", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Тооны машин" })).toBeVisible();
   await page.getByRole("button", { name: "Тохиргоо" }).last().click();
   await expect(page.getByRole("heading", { name: "Тохиргоо" })).toBeVisible();
+});
+
+test("keeps every watchlist source and pair reachable", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Ханш нэмэх" }).click();
+  const finalSource = page.getByRole("button", {
+    name: "Source 12",
+    exact: true,
+  });
+  await finalSource.scrollIntoViewIfNeeded();
+  await finalSource.click();
+  await expect(page.getByText("P12/MNT")).toBeVisible();
 });

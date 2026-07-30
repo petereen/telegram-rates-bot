@@ -50,6 +50,59 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_formula_create_validates_and_returns_definition(self) -> None:
+        row = {
+            "id": "formula-1",
+            "title": "TEST",
+            "left_operand": {
+                "kind": "rate",
+                "provider": "CBR",
+                "symbol": "USD/RUB",
+                "field": "rate",
+            },
+            "operator": "*",
+            "right_operand": {"kind": "constant", "value": "1.01"},
+            "adjustment_percent": None,
+            "precision": 2,
+            "enabled": True,
+            "sort_order": 3,
+            "updated_at": "2026-07-30T00:00:00Z",
+        }
+        with patch("api.app.create_formula_definition", return_value=row):
+            response = self.client.post(
+                "/api/formulas",
+                json={
+                    "title": "TEST",
+                    "left": row["left_operand"],
+                    "operator": "*",
+                    "right": row["right_operand"],
+                    "adjustmentPercent": None,
+                    "precision": 2,
+                    "enabled": True,
+                },
+            )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["formula"]["id"], "formula-1")
+
+    def test_formula_rejects_unsupported_field(self) -> None:
+        response = self.client.post(
+            "/api/formulas",
+            json={
+                "title": "BAD",
+                "left": {
+                    "kind": "rate",
+                    "provider": "CBR",
+                    "symbol": "USD/RUB",
+                    "field": "min_price",
+                },
+                "operator": "*",
+                "right": {"kind": "constant", "value": "1"},
+                "precision": 2,
+                "enabled": True,
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

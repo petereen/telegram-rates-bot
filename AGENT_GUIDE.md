@@ -103,7 +103,10 @@ Each rate message has:
 
 ## Calculated rates
 
-The bot fetches formula inputs in parallel. `/calc` displays:
+Calculated formulas are global rows in `calculated_formulas`. The schema seeds
+the following defaults, and whitelisted users can add, edit, reorder, disable,
+or remove formulas in the Mini App. The bot and web API fetch distinct formula
+inputs in parallel. `/calc` initially displays:
 
 ```text
 ДЕЛЬКРАДО = MongolBank RUB/MNT × 1.005
@@ -111,8 +114,10 @@ The bot fetches formula inputs in parallel. `/calc` displays:
 RUB БЭЛЭН = lowest Binance P2P USDT/MNT offer ÷ Rapira USDT/RUB buy
 ```
 
-Formula message IDs look like `_f:0`. Refreshing one regenerates the formula
-section and updates that formula’s displayed message.
+Formula message IDs use stable database IDs, for example `_f:delcrado`.
+Legacy numeric IDs such as `_f:0` remain readable on old messages. Refreshing
+one regenerates the formula section and updates that formula’s displayed
+message.
 
 ## Interactive calculator
 
@@ -144,7 +149,13 @@ live fetch. Both successful and error payloads are cached for `CACHE_TTL`
 seconds (default: 300), so failures can appear temporarily cached.
 
 Registered through `providers/registry.py`: `CBR`, `XE`, `Binance`, `Rapira`,
-`Profinance`, `BOC`, `TDB`, `MongolBank`, and `CapitronBank`.
+`Profinance`, `BOC`, and all 15 institutions exposed by
+`btseee/mongolian-bank-exchange-rate`. The legacy `TDB` provider remains
+resolvable for stored formulas/subscriptions but is hidden from new watchlists;
+new entries use the upstream `TDBM` code.
+
+The 15 normalized Mongolian providers require `MONGOLIAN_BANK_API_URL` to point
+to a running instance of that upstream API.
 
 `providers/grx.py` exists but is intentionally not imported by the shared
 registry, so GRX is not exposed.

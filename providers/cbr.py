@@ -73,6 +73,7 @@ class CBRProvider(BaseProvider):
         "CZK/RUB": "Czech Koruna → Ruble",
         "HUF/RUB": "Hungarian Forint → Ruble",
     }
+    FORMULA_FIELDS = {symbol: ("rate",) for symbol in PAIRS}
 
     # We fetch the entire XML once and parse all currencies.
     # To avoid redundant HTTP calls when the user has several CBR pairs,

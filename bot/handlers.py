@@ -38,7 +38,7 @@ from db.supabase_client import (
 )
 from providers.base import get_provider, all_providers
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
-from services.calculator import evaluate_tokens
+from services.calculator import evaluate_tokens, format_hundredths
 from services.rates import (
     get_formula_snapshots,
     render_formula_html,
@@ -207,9 +207,27 @@ def _escape_html(text: str) -> str:
 
 
 async def _build_formula_section(force: bool = False) -> list[str]:
-    """Calculate and render the three shared structured formula snapshots."""
+    """Calculate and render all enabled global formula snapshots."""
     snapshots = await get_formula_snapshots(force=force)
     return [render_formula_html(snapshot) for snapshot in snapshots]
+
+
+async def _build_formula_items(force: bool = False) -> list[tuple[str, str]]:
+    snapshots = await get_formula_snapshots(force=force)
+    return [
+        (snapshot.key.removeprefix("formula:"), render_formula_html(snapshot))
+        for snapshot in snapshots
+    ]
+
+
+def _formula_item_for_rate_id(
+    items: list[tuple[str, str]], rate_id: str
+) -> tuple[str, str] | None:
+    token = rate_id.split(":", 1)[1]
+    if token.isdigit():  # Compatibility with buttons on older bot messages.
+        index = int(token)
+        return items[index] if index < len(items) else None
+    return next((item for item in items if item[0] == token), None)
 
 
 # ── /calc ───────────────────────────────────────────────────────────────
@@ -280,14 +298,14 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             rate_tasks.append(asyncio.to_thread(prov.get_rate, sym))
 
-    formula_task = _build_formula_section()
+    formula_task = _build_formula_items()
 
     all_results = await asyncio.gather(
         *rate_tasks, formula_task, return_exceptions=True
     )
 
     rate_results = all_results[:-1]
-    formula_lines = all_results[-1]
+    formula_items = all_results[-1]
 
     # ── Send each rate as a separate message ──────────────────────────
     for (prov_name, sym), data in zip(fetch_jobs, rate_results):
@@ -328,11 +346,11 @@ async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             )
 
     # ── Formula-based rates – each formula as its own message ─────────
-    if isinstance(formula_lines, list):
-        for fi, fl in enumerate(formula_lines):
-            rate_id = f"_f:{fi}"
+    if isinstance(formula_items, list):
+        for formula_id, formula_html in formula_items:
+            rate_id = f"_f:{formula_id}"
             await update.message.reply_text(
-                fl, parse_mode=ParseMode.HTML,
+                formula_html, parse_mode=ParseMode.HTML,
                 reply_markup=rate_actions_keyboard(rate_id),
             )
 
@@ -755,13 +773,15 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
 
         if rate_id.startswith("_f:"):
             # Formula rate update
-            idx = int(rate_id.split(":")[1])
             try:
-                formula_lines = await _build_formula_section(force=True)
-                if idx < len(formula_lines):
-                    text = formula_lines[idx] + ts_line
-                else:
-                    text = "Алдаа: тооцоолох боломжгүй."
+                item = _formula_item_for_rate_id(
+                    await _build_formula_items(force=True), rate_id
+                )
+                text = (
+                    item[1] + ts_line
+                    if item
+                    else "Алдаа: тооцоолох боломжгүй."
+                )
                 await query.edit_message_text(
                     text, parse_mode=ParseMode.HTML,
                     reply_markup=rate_actions_keyboard(rate_id),
@@ -914,17 +934,23 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
             )
             calc_tokens = bundle.get("calculationTokens")
             calculation = evaluate_tokens(calc_tokens) if calc_tokens else None
-            html_text = render_share_html(snapshots, calculation)
+            calculation_result = (
+                format_hundredths(calculation["result"])
+                if calculation
+                and bundle.get("calculationResultMode") == "hundredths"
+                else None
+            )
+            html_text = render_share_html(
+                snapshots, calculation, calculation_result
+            )
         elif rate_id.startswith("_t:"):
             # Direct text share (e.g. calc results)
             html_text = f"📐 <b>Тооцоолол</b>\n\n{rate_id[3:]}"
         elif rate_id.startswith("_f:"):
-            idx = int(rate_id.split(":")[1])
-            formula_lines = await _build_formula_section()
-            if idx < len(formula_lines):
-                html_text = formula_lines[idx]
-            else:
-                html_text = "Ханш олдсонгүй."
+            item = _formula_item_for_rate_id(
+                await _build_formula_items(), rate_id
+            )
+            html_text = item[1] if item else "Ханш олдсонгүй."
         else:
             parts = rate_id.split(":")
             prov_name = parts[0]

@@ -67,6 +67,7 @@ class CapitronBankProvider(BaseProvider):
         "EUR/MNT": "Euro ↔ Tögrög",
         "RMB/MNT": "Chinese Yuan (RMB) ↔ Tögrög",
     }
+    FORMULA_FIELDS = {symbol: ("buy", "sell", "rate") for symbol in PAIRS}
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         code = _PAIR_TO_CODE.get(symbol)

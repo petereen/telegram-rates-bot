@@ -22,4 +22,14 @@ CACHE_TTL: int = int(os.getenv("CACHE_TTL", "300"))
 APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 SESSION_SECRET: str = os.getenv("SESSION_SECRET", TELEGRAM_BOT_TOKEN)
 SESSION_COOKIE_SECURE: bool = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
-AUTH_MAX_AGE: int = int(os.getenv("AUTH_MAX_AGE", "900"))
+# Telegram's signed Mini App data can be reused when Telegram restores a
+# recently opened webview. Keep the replay window bounded but practical.
+AUTH_MAX_AGE: int = int(os.getenv("AUTH_MAX_AGE", "86400"))
+
+# Self-hosted instance of btseee/mongolian-bank-exchange-rate. The upstream
+# project's former public Heroku deployment is retained as a compatibility
+# default, but production deployments should set this to their own API.
+MONGOLIAN_BANK_API_URL: str = os.getenv(
+    "MONGOLIAN_BANK_API_URL",
+    "https://mongolian-bank-exchange-rate-6620c122ff22.herokuapp.com",
+).rstrip("/")

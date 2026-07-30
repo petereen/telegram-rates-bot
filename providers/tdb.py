@@ -71,7 +71,11 @@ def _fetch_all_rates() -> dict[str, dict[str, float | None]]:
 @register_provider
 class TDBProvider(BaseProvider):
     NAME = "TDB"
+    # Kept as a hidden legacy provider so existing formulas and subscriptions
+    # continue to resolve. New watchlists use the upstream API's TDBM code.
+    VISIBLE = False
     PAIRS = _ALL_PAIRS
+    FORMULA_FIELDS = {symbol: ("buy", "sell", "rate") for symbol in PAIRS}
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         code = _PAIR_TO_KEY.get(symbol)

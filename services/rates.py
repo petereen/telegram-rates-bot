@@ -11,11 +11,12 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from db.supabase_client import (
+    get_formula_definitions,
     get_cached_rate_entry,
     get_subscriptions,
     set_cached_rate,
 )
-from providers.base import get_provider
+from providers.base import all_providers, get_provider
 
 log = logging.getLogger(__name__)
 UB_TZ = timezone(timedelta(hours=8))
@@ -57,7 +58,18 @@ def _amount(value: Any, digits: int = 8) -> str:
 
 
 def _is_success(data: dict[str, Any]) -> bool:
-    return any(data.get(key) is not None for key in ("rate", "buy", "sell"))
+    return any(
+        data.get(key) is not None
+        for key in (
+            "rate",
+            "buy",
+            "sell",
+            "cash_buy",
+            "cash_sell",
+            "noncash_buy",
+            "noncash_sell",
+        )
+    )
 
 
 def snapshot_from_provider_data(
@@ -69,10 +81,20 @@ def snapshot_from_provider_data(
     status: str = "fresh",
 ) -> RateSnapshot:
     values: list[RateValue] = []
-    if data.get("buy") is not None:
-        values.append(RateValue("buy", _amount(data["buy"])))
-    if data.get("sell") is not None:
-        values.append(RateValue("sell", _amount(data["sell"])))
+    detailed_fields = (
+        ("cash_buy", "cash buy"),
+        ("cash_sell", "cash sell"),
+        ("noncash_buy", "non-cash buy"),
+        ("noncash_sell", "non-cash sell"),
+    )
+    for key, label in detailed_fields:
+        if data.get(key) is not None:
+            values.append(RateValue(label, _amount(data[key])))
+    if not values:
+        if data.get("buy") is not None:
+            values.append(RateValue("buy", _amount(data["buy"])))
+        if data.get("sell") is not None:
+            values.append(RateValue("sell", _amount(data["sell"])))
     if not values and data.get("rate") is not None:
         values.append(RateValue("value", _amount(data["rate"])))
 
@@ -136,117 +158,231 @@ def _formula_error(key: str, title: str, message: str) -> RateSnapshot:
     )
 
 
-async def get_formula_snapshots(force: bool = False) -> list[RateSnapshot]:
-    """Calculate the three default rates with concurrent upstream requests."""
+FIELD_LABELS = {
+    "rate": "ханш",
+    "buy": "авах",
+    "sell": "зарах",
+    "min_price": "хамгийн бага",
+    "bid": "bid",
+    "ask": "ask",
+    "cash_buy": "бэлэн авах",
+    "cash_sell": "бэлэн зарах",
+    "noncash_buy": "бэлэн бус авах",
+    "noncash_sell": "бэлэн бус зарах",
+}
 
-    async def fetch(provider: str, symbol: str) -> tuple[RateSnapshot, dict[str, Any]]:
+
+def formula_definition_to_dict(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "left": row["left_operand"],
+        "operator": row["operator"],
+        "right": row["right_operand"],
+        "adjustmentPercent": (
+            str(row["adjustment_percent"])
+            if row.get("adjustment_percent") is not None
+            else None
+        ),
+        "precision": int(row["precision"]),
+        "enabled": bool(row["enabled"]),
+        "sortOrder": int(row["sort_order"]),
+        "updatedAt": row.get("updated_at"),
+    }
+
+
+def normalize_formula_definition(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate API formula data and return the database representation."""
+    title = str(data.get("title") or "").strip()
+    if not title or len(title) > 80:
+        raise ValueError("Томьёоны нэр 1–80 тэмдэгт байна")
+    operator = str(data.get("operator") or "")
+    if operator not in {"+", "-", "*", "/"}:
+        raise ValueError("Томьёоны үйлдэл буруу")
+
+    providers = all_providers()
+
+    def operand(raw: Any, *, allow_constant: bool) -> dict[str, str]:
+        if not isinstance(raw, dict):
+            raise ValueError("Томьёоны утга буруу")
+        kind = raw.get("kind")
+        if allow_constant and kind == "constant":
+            try:
+                value = Decimal(str(raw.get("value")))
+            except Exception as exc:
+                raise ValueError("Тогтмол утга буруу") from exc
+            if not value.is_finite():
+                raise ValueError("Тогтмол утга буруу")
+            return {"kind": "constant", "value": str(value)}
+        if kind != "rate":
+            raise ValueError("Ханшийн утга сонгоно уу")
+        provider_name = str(raw.get("provider") or "")
+        symbol = str(raw.get("symbol") or "")
+        field_name = str(raw.get("field") or "")
+        provider = providers.get(provider_name)
+        if provider is None or symbol not in provider.PAIRS:
+            raise ValueError("Томьёоны эх сурвалж олдсонгүй")
+        if field_name not in provider.formula_fields(symbol):
+            raise ValueError("Сонгосон ханшийн талбар дэмжигдэхгүй")
+        return {
+            "kind": "rate",
+            "provider": provider_name,
+            "symbol": symbol,
+            "field": field_name,
+        }
+
+    adjustment = data.get("adjustmentPercent")
+    if adjustment in ("", None):
+        normalized_adjustment = None
+    else:
+        try:
+            percent = Decimal(str(adjustment))
+        except Exception as exc:
+            raise ValueError("Хувийн тохируулга буруу") from exc
+        if not percent.is_finite() or percent <= Decimal("-100"):
+            raise ValueError("Хувийн тохируулга -100%-аас их байна")
+        normalized_adjustment = str(percent)
+
+    try:
+        precision = int(data.get("precision", 2))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Нарийвчлал буруу") from exc
+    if precision < 0 or precision > 8:
+        raise ValueError("Нарийвчлал 0–8 байна")
+
+    return {
+        "title": title,
+        "left_operand": operand(data.get("left"), allow_constant=False),
+        "operator": operator,
+        "right_operand": operand(data.get("right"), allow_constant=True),
+        "adjustment_percent": normalized_adjustment,
+        "precision": precision,
+        "enabled": bool(data.get("enabled", True)),
+    }
+
+
+def _operand_label(operand: dict[str, Any]) -> str:
+    if operand["kind"] == "constant":
+        return str(operand["value"])
+    field = FIELD_LABELS.get(operand["field"], operand["field"])
+    return f"{operand['provider']} {operand['symbol']} {field}"
+
+
+def _formula_label(definition: dict[str, Any]) -> str:
+    operator = {"*": "×", "/": "÷"}.get(
+        definition["operator"], definition["operator"]
+    )
+    label = (
+        f"{_operand_label(definition['left_operand'])} {operator} "
+        f"{_operand_label(definition['right_operand'])}"
+    )
+    adjustment = definition.get("adjustment_percent")
+    if adjustment is not None and Decimal(str(adjustment)):
+        sign = "+" if Decimal(str(adjustment)) > 0 else ""
+        label += f" {sign}{adjustment}%"
+    return label
+
+
+async def get_formula_snapshots(
+    force: bool = False,
+    definitions: Optional[list[dict[str, Any]]] = None,
+) -> list[RateSnapshot]:
+    """Evaluate globally configured formulas with de-duplicated rate fetches."""
+    if definitions is None:
+        definitions = await asyncio.to_thread(
+            get_formula_definitions, include_disabled=False
+        )
+
+    dependencies: set[tuple[str, str]] = set()
+    for definition in definitions:
+        for operand in (
+            definition.get("left_operand", {}),
+            definition.get("right_operand", {}),
+        ):
+            if operand.get("kind") == "rate":
+                dependencies.add((operand["provider"], operand["symbol"]))
+
+    async def fetch(provider: str, symbol: str) -> tuple[dict[str, Any], str]:
         instance = get_provider(provider)
         data = await asyncio.to_thread(
             instance.fetch if force else instance.get_rate, symbol
         )
         if force and _is_success(data):
             await asyncio.to_thread(set_cached_rate, provider, symbol, data)
-        return snapshot_from_provider_data(provider, symbol, data), data
+        cached = await asyncio.to_thread(
+            get_cached_rate_entry, provider, symbol, include_stale=True
+        )
+        fetched_at = cached[1] if cached else datetime.now(timezone.utc)
+        return data, fetched_at.isoformat()
 
-    results = await asyncio.gather(
-        fetch("MongolBank", "RUB/MNT"),
-        fetch("TDB", "USD/MNT"),
-        fetch("CBR", "USD/RUB"),
-        fetch("Binance", "P2P USDT/MNT"),
-        fetch("Rapira", "USDT/RUB"),
+    dependency_list = sorted(dependencies)
+    fetched = await asyncio.gather(
+        *(fetch(provider, symbol) for provider, symbol in dependency_list),
         return_exceptions=True,
     )
+    values = dict(zip(dependency_list, fetched))
+    snapshots: list[RateSnapshot] = []
 
-    def unpack(index: int) -> tuple[Optional[RateSnapshot], dict[str, Any]]:
-        result = results[index]
-        if isinstance(result, Exception):
-            return None, {}
-        return result
+    for definition in definitions:
+        formula_id = str(definition["id"])
+        title = str(definition["title"])
+        try:
+            timestamps: list[str] = []
 
-    mb_snapshot, mb = unpack(0)
-    tdb_snapshot, tdb = unpack(1)
-    cbr_snapshot, cbr = unpack(2)
-    binance_snapshot, binance = unpack(3)
-    rapira_snapshot, rapira = unpack(4)
-    now = datetime.now(timezone.utc).isoformat()
-    formulas: list[RateSnapshot] = []
+            def resolve(operand: dict[str, Any]) -> Decimal:
+                if operand["kind"] == "constant":
+                    return Decimal(str(operand["value"]))
+                dependency = values[(operand["provider"], operand["symbol"])]
+                if isinstance(dependency, Exception):
+                    raise ValueError("upstream error")
+                payload, fetched_at = dependency
+                timestamps.append(fetched_at)
+                return Decimal(str(payload[operand["field"]]))
 
-    try:
-        base = Decimal(str(mb["rate"]))
-        result = base * Decimal("1.005")
-        formulas.append(
-            RateSnapshot(
-                key="formula:delcrado",
-                kind="calculated",
-                source="Тооцоолсон",
-                pair="ДЕЛЬКРАДО",
-                values=[RateValue("value", _amount(result, 2))],
-                fetched_at=mb_snapshot.fetched_at if mb_snapshot else now,
-                formula="MongolBank RUB/MNT × 1.005",
-                details=[f"MongolBank RUB: {_amount(base, 2)}", "+0.50%"],
+            left = resolve(definition["left_operand"])
+            right = resolve(definition["right_operand"])
+            operator = definition["operator"]
+            if operator == "+":
+                result = left + right
+            elif operator == "-":
+                result = left - right
+            elif operator == "*":
+                result = left * right
+            else:
+                result = left / right
+            adjustment = definition.get("adjustment_percent")
+            if adjustment is not None:
+                result *= Decimal("1") + Decimal(str(adjustment)) / Decimal("100")
+            precision = int(definition["precision"])
+            snapshots.append(
+                RateSnapshot(
+                    key=f"formula:{formula_id}",
+                    kind="calculated",
+                    source="Тооцоолсон",
+                    pair=title,
+                    values=[RateValue("value", _amount(result, precision))],
+                    fetched_at=max(timestamps) if timestamps else datetime.now(timezone.utc).isoformat(),
+                    formula=_formula_label(definition),
+                    details=[
+                        f"{_operand_label(definition['left_operand'])}: {_amount(left)}",
+                        f"{_operand_label(definition['right_operand'])}: {_amount(right)}",
+                    ],
+                )
             )
-        )
-    except (KeyError, TypeError, ValueError):
-        formulas.append(_formula_error("delcrado", "ДЕЛЬКРАДО", "MongolBank ханш олдсонгүй"))
-
-    try:
-        tdb_sell = Decimal(str(tdb["sell"]))
-        cbr_rate = Decimal(str(cbr["rate"]))
-        result = (tdb_sell / cbr_rate) * Decimal("1.01")
-        formulas.append(
-            RateSnapshot(
-                key="formula:triquetra",
-                kind="calculated",
-                source="Тооцоолсон",
-                pair="ТРИКУЭТРА",
-                values=[RateValue("value", _amount(result, 2))],
-                fetched_at=max(
-                    tdb_snapshot.fetched_at if tdb_snapshot else now,
-                    cbr_snapshot.fetched_at if cbr_snapshot else now,
-                ),
-                formula="TDB USD/MNT sell ÷ CBR USD/RUB × 1.01",
-                details=[
-                    f"TDB USD sell: {_amount(tdb_sell, 2)}",
-                    f"CBR USD/RUB: {_amount(cbr_rate, 4)}",
-                    "+1%",
-                ],
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            snapshots.append(
+                _formula_error(formula_id, title, "Томьёоны ханш авах боломжгүй")
             )
-        )
-    except (KeyError, TypeError, ValueError, ArithmeticError):
-        formulas.append(_formula_error("triquetra", "ТРИКУЭТРА", "TDB эсвэл CBR ханш олдсонгүй"))
-
-    try:
-        mnt = Decimal(str(binance["min_price"]))
-        rub = Decimal(str(rapira.get("buy") or rapira["bid"]))
-        result = mnt / rub
-        formulas.append(
-            RateSnapshot(
-                key="formula:rub-cash",
-                kind="calculated",
-                source="Тооцоолсон",
-                pair="RUB БЭЛЭН",
-                values=[RateValue("value", _amount(result, 2))],
-                fetched_at=max(
-                    binance_snapshot.fetched_at if binance_snapshot else now,
-                    rapira_snapshot.fetched_at if rapira_snapshot else now,
-                ),
-                formula="Binance min USDT/MNT ÷ Rapira buy USDT/RUB",
-                details=[
-                    f"Binance USDT/MNT: {_amount(mnt, 2)}",
-                    f"Rapira buy: {_amount(rub, 2)}",
-                ],
-            )
-        )
-    except (KeyError, TypeError, ValueError, ArithmeticError):
-        formulas.append(_formula_error("rub-cash", "RUB БЭЛЭН", "Binance эсвэл Rapira ханш олдсонгүй"))
-
-    return formulas
+    return snapshots
 
 
 async def allowed_rate_keys(telegram_id: int) -> set[str]:
     rows = await asyncio.to_thread(get_subscriptions, telegram_id)
     keys = {rate_key(row["provider"], row["symbol"]) for row in rows}
-    keys.update({"formula:delcrado", "formula:triquetra", "formula:rub-cash"})
+    definitions = await asyncio.to_thread(
+        get_formula_definitions, include_disabled=False
+    )
+    keys.update(f"formula:{row['id']}" for row in definitions)
     return keys
 
 
@@ -290,6 +426,7 @@ def render_formula_html(snapshot: RateSnapshot) -> str:
 def render_share_html(
     snapshots: list[RateSnapshot],
     calculation: Optional[dict[str, str]] = None,
+    calculation_result: Optional[str] = None,
 ) -> str:
     now = datetime.now(UB_TZ)
     lines = [
@@ -312,12 +449,13 @@ def render_share_html(
         if snapshot.formula:
             lines.append(f"<i>{html.escape(snapshot.formula)}</i>")
     if calculation:
+        result = calculation_result or calculation["result"]
         lines.extend(
             [
                 "",
                 "<b>Тооцоолол</b>",
                 f"{html.escape(calculation['expression'])} = "
-                f"<code>{html.escape(calculation['result'])}</code>",
+                f"<code>{html.escape(result)}</code>",
             ]
         )
     return "\n".join(lines)

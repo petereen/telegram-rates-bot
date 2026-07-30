@@ -7,9 +7,9 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from telegram import Bot, InlineQueryResultArticle, InputTextMessageContent
@@ -20,6 +20,7 @@ from api.auth import (
     AuthUser,
     current_user,
     establish_session,
+    issue_access_token,
     oidc_callback_response,
     oidc_login_response,
     validate_mini_app_data,
@@ -32,19 +33,29 @@ from config import (
 from db.supabase_client import (
     add_subscription,
     clear_subscriptions,
+    create_formula_definition,
     create_share_bundle,
+    get_branding,
+    get_formula_definitions,
     get_share_bundle,
     get_subscriptions,
+    reorder_formula_definitions,
     remove_subscription_by_id,
+    soft_delete_formula_definition,
+    update_formula_definition,
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
-from services.calculator import CalculationError, evaluate_tokens
+from services.branding import BrandingError, remove_logo, replace_logo
+from services.calculator import CalculationError, evaluate_tokens, format_hundredths
 from services.rates import (
+    FIELD_LABELS,
     RateSnapshot,
     allowed_rate_keys,
+    formula_definition_to_dict,
     get_formula_snapshots,
     get_rate_snapshot,
+    normalize_formula_definition,
     render_share_html,
     resolve_user_rate_keys,
 )
@@ -76,6 +87,23 @@ class CalculationInput(BaseModel):
 class ShareInput(BaseModel):
     rate_keys: list[str] = Field(default_factory=list, alias="rateKeys")
     calculation_tokens: Optional[list[Any]] = Field(default=None, alias="calculationTokens")
+    calculation_result_mode: Literal["full", "hundredths"] = Field(
+        default="full", alias="calculationResultMode"
+    )
+
+
+class FormulaInput(BaseModel):
+    title: str
+    left: dict[str, Any]
+    operator: str
+    right: dict[str, Any]
+    adjustment_percent: Optional[str] = Field(default=None, alias="adjustmentPercent")
+    precision: int = 2
+    enabled: bool = True
+
+
+class FormulaOrderInput(BaseModel):
+    ids: list[str]
 
 
 @app.get("/api/health")
@@ -87,7 +115,7 @@ async def health() -> dict[str, str]:
 async def mini_app_login(payload: MiniAppLogin, response: Response) -> dict[str, Any]:
     user = await asyncio.to_thread(validate_mini_app_data, payload.init_data)
     user = await asyncio.to_thread(establish_session, response, user)
-    return {"user": user.to_dict()}
+    return {"user": user.to_dict(), "accessToken": issue_access_token(user)}
 
 
 @app.get("/api/auth/telegram/start")
@@ -126,11 +154,19 @@ async def catalog(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
         providers.append(
             {
                 "name": name,
+                "label": provider.DISPLAY_NAME or name,
                 "pairs": [
                     {
                         "symbol": symbol,
                         "label": label,
                         "subscribed": (name, symbol) in selected,
+                        "formulaFields": [
+                            {
+                                "key": field,
+                                "label": FIELD_LABELS.get(field, field),
+                            }
+                            for field in provider.formula_fields(symbol)
+                        ],
                     }
                     for symbol, label in provider.PAIRS.items()
                 ],
@@ -228,6 +264,115 @@ async def calculated(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
     return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
 
 
+@app.get("/api/formulas")
+async def formulas(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
+    rows = await asyncio.to_thread(get_formula_definitions)
+    return {"formulas": [formula_definition_to_dict(row) for row in rows]}
+
+
+def _formula_payload(payload: FormulaInput) -> dict[str, Any]:
+    try:
+        return normalize_formula_definition(payload.model_dump(by_alias=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/formulas", status_code=201)
+async def create_formula(
+    payload: FormulaInput, user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    row = await asyncio.to_thread(create_formula_definition, _formula_payload(payload))
+    return {"formula": formula_definition_to_dict(row)}
+
+
+@app.put("/api/formulas/order")
+async def order_formulas(
+    payload: FormulaOrderInput, user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    current = await asyncio.to_thread(get_formula_definitions)
+    current_ids = [str(row["id"]) for row in current]
+    if len(payload.ids) != len(set(payload.ids)) or set(payload.ids) != set(current_ids):
+        raise HTTPException(status_code=422, detail="Томьёоны дараалал буруу")
+    rows = await asyncio.to_thread(reorder_formula_definitions, payload.ids)
+    return {"formulas": [formula_definition_to_dict(row) for row in rows]}
+
+
+@app.put("/api/formulas/{formula_id}")
+async def update_formula(
+    formula_id: str,
+    payload: FormulaInput,
+    user: AuthUser = Depends(current_user),
+) -> dict[str, Any]:
+    row = await asyncio.to_thread(
+        update_formula_definition, formula_id, _formula_payload(payload)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Томьёо олдсонгүй")
+    return {"formula": formula_definition_to_dict(row)}
+
+
+@app.delete("/api/formulas/{formula_id}")
+async def delete_formula(
+    formula_id: str, user: AuthUser = Depends(current_user)
+) -> dict[str, bool]:
+    removed = await asyncio.to_thread(soft_delete_formula_definition, formula_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Томьёо олдсонгүй")
+    return {"removed": True}
+
+
+@app.get("/api/branding")
+async def branding(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
+    return await asyncio.to_thread(get_branding)
+
+
+async def _uploaded_logo(file: UploadFile) -> tuple[bytes, str]:
+    content = await file.read(2 * 1024 * 1024 + 1)
+    return content, file.content_type or ""
+
+
+@app.put("/api/branding/app-logo")
+async def upload_app_logo(
+    file: UploadFile = File(...), user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    content, content_type = await _uploaded_logo(file)
+    try:
+        return await asyncio.to_thread(replace_logo, content, content_type)
+    except BrandingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/branding/app-logo")
+async def delete_app_logo(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
+    return await asyncio.to_thread(remove_logo)
+
+
+@app.put("/api/branding/sources/{provider}")
+async def upload_source_logo(
+    provider: str,
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(current_user),
+) -> dict[str, Any]:
+    if provider not in all_providers():
+        raise HTTPException(status_code=404, detail="Эх сурвалж олдсонгүй")
+    content, content_type = await _uploaded_logo(file)
+    try:
+        return await asyncio.to_thread(
+            replace_logo, content, content_type, provider=provider
+        )
+    except BrandingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/branding/sources/{provider}")
+async def delete_source_logo(
+    provider: str, user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    if provider not in all_providers():
+        raise HTTPException(status_code=404, detail="Эх сурвалж олдсонгүй")
+    return await asyncio.to_thread(remove_logo, provider=provider)
+
+
 async def _allowed_keys(user: AuthUser) -> set[str]:
     return await allowed_rate_keys(user.telegram_id)
 
@@ -278,7 +423,11 @@ async def _share_payload(
     if not keys and not calculation:
         raise HTTPException(status_code=400, detail="Хуваалцах зүйл сонгоно уу")
     snapshots = await _resolve_keys(user, keys) if keys else []
-    html_text = render_share_html(snapshots, calculation)
+    mode = payload.get("calculationResultMode", "full")
+    calculation_result = None
+    if calculation and mode == "hundredths":
+        calculation_result = format_hundredths(calculation["result"])
+    html_text = render_share_html(snapshots, calculation, calculation_result)
     if len(html_text) > 4096:
         raise HTTPException(
             status_code=413,
@@ -314,6 +463,7 @@ async def create_share(
     raw_payload = {
         "rateKeys": payload.rate_keys,
         "calculationTokens": payload.calculation_tokens,
+        "calculationResultMode": payload.calculation_result_mode,
     }
     html_text, _, _ = await _share_payload(user, raw_payload)
     token = secrets.token_urlsafe(18)

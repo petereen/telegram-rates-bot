@@ -20,8 +20,13 @@ from providers.base import all_providers, get_provider
 def providers_keyboard() -> InlineKeyboardMarkup:
     """Top-level keyboard listing every registered provider."""
     buttons = [
-        [InlineKeyboardButton(name, callback_data=f"prov:{name}")]
-        for name in sorted(all_providers())
+        [
+            InlineKeyboardButton(
+                provider.DISPLAY_NAME or name,
+                callback_data=f"prov:{name}",
+            )
+        ]
+        for name, provider in sorted(all_providers().items())
     ]
     return InlineKeyboardMarkup(buttons)
 

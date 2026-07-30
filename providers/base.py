@@ -23,7 +23,14 @@ log = logging.getLogger(__name__)
 
 class BaseProvider(ABC):
     NAME: str = ""
+    DISPLAY_NAME: str = ""
+    VISIBLE: bool = True
     PAIRS: dict[str, str] = {}
+    FORMULA_FIELDS: dict[str, tuple[str, ...]] = {}
+
+    def formula_fields(self, symbol: str) -> tuple[str, ...]:
+        """Return numeric payload fields that formulas may reference."""
+        return self.FORMULA_FIELDS.get(symbol, ())
 
     # ── public entry point (cache-aware) ───────────────────────────────
 
@@ -78,4 +85,8 @@ def get_provider(name: str) -> BaseProvider:
 
 def all_providers() -> dict[str, BaseProvider]:
     """Return {name: instance} for every registered provider."""
-    return {name: cls() for name, cls in _registry.items()}
+    return {
+        name: cls()
+        for name, cls in _registry.items()
+        if getattr(cls, "VISIBLE", True)
+    }

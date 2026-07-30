@@ -95,6 +95,7 @@ class BOCProvider(BaseProvider):
         "INR": "Indian Rupee (CNY rate)",
         "AED": "UAE Dirham (CNY rate)",
     }
+    FORMULA_FIELDS = {symbol: ("buy", "sell") for symbol in PAIRS}
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         if symbol not in _CURRENCY_MATCH:

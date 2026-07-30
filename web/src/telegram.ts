@@ -25,26 +25,61 @@ declare global {
   }
 }
 
-export const telegram = window.Telegram?.WebApp;
-export const isTelegram = Boolean(telegram?.initData);
+export function getTelegramWebApp(): TelegramWebApp | undefined {
+  return window.Telegram?.WebApp;
+}
+
+function launchDataParameter(name: string): string {
+  const fromQuery = new URLSearchParams(window.location.search).get(name);
+  if (fromQuery) return fromQuery;
+
+  // Telegram Desktop can pass Web App launch parameters in the URL fragment,
+  // e.g. #tgWebAppData=…&tgWebAppVersion=…. URLSearchParams also decodes the
+  // outer value, leaving the signed init-data query string intact for server
+  // validation.
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  return new URLSearchParams(hash).get(name) || "";
+}
+
+/** Return launch data from either Telegram's JS bridge or direct-link query. */
+export function getTelegramInitData(): string {
+  const bridgeData = window.Telegram?.WebApp?.initData?.trim();
+  if (bridgeData) return bridgeData;
+  return launchDataParameter("tgWebAppData");
+}
+
+export function isTelegramLaunch(): boolean {
+  // telegram-web-app.js also creates window.Telegram.WebApp in an ordinary
+  // browser, so the bridge object alone is not proof of a Telegram launch.
+  return Boolean(
+    getTelegramInitData() ||
+      launchDataParameter("tgWebAppVersion") ||
+      launchDataParameter("tgWebAppPlatform"),
+  );
+}
 
 export function initializeTelegram(): void {
-  if (!telegram) return;
-  telegram.ready();
-  telegram.expand();
+  const app = getTelegramWebApp();
+  if (!app) return;
+  app.ready();
+  app.expand();
 }
 
 export function haptic(
   type: "success" | "warning" | "error" | "light" = "light",
 ): void {
-  if (!telegram?.HapticFeedback) return;
-  if (type === "light") telegram.HapticFeedback.impactOccurred("light");
-  else telegram.HapticFeedback.notificationOccurred(type);
+  const app = getTelegramWebApp();
+  if (!app?.HapticFeedback) return;
+  if (type === "light") app.HapticFeedback.impactOccurred("light");
+  else app.HapticFeedback.notificationOccurred(type);
 }
 
 export async function sharePreparedMessage(messageId: string): Promise<boolean> {
-  if (!telegram?.shareMessage) return false;
+  const app = getTelegramWebApp();
+  if (!app?.shareMessage) return false;
   return new Promise((resolve) => {
-    telegram.shareMessage?.(messageId, (success) => resolve(success));
+    app.shareMessage?.(messageId, (success) => resolve(success));
   });
 }

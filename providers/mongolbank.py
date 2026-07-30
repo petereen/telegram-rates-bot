@@ -130,6 +130,7 @@ def _fetch_rates() -> dict[str, float]:
 class MongolBankProvider(BaseProvider):
     NAME = "MongolBank"
     PAIRS = _ALL_PAIRS
+    FORMULA_FIELDS = {symbol: ("rate",) for symbol in PAIRS}
 
     def get_rate(self, symbol: str) -> dict[str, Any]:
         """Return today's stored rate, refreshing it at most once per process.

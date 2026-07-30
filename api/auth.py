@@ -10,12 +10,13 @@ import json
 import secrets
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode
 
 import httpx
 import jwt
-from fastapi import Cookie, HTTPException, Response
+from fastapi import Cookie, Header, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
@@ -32,6 +33,7 @@ from db.supabase_client import ensure_user, is_whitelisted
 
 SESSION_COOKIE = "rates_session"
 OIDC_COOKIE = "rates_oidc"
+ACCESS_TOKEN_TTL = timedelta(hours=12)
 OIDC_ISSUER = "https://oauth.telegram.org"
 OIDC_AUTH_URL = f"{OIDC_ISSUER}/auth"
 OIDC_TOKEN_URL = f"{OIDC_ISSUER}/token"
@@ -117,20 +119,66 @@ def establish_session(response: Response, user: AuthUser) -> AuthUser:
     return user
 
 
-def current_user(
-    rates_session: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE),
-) -> AuthUser:
-    if not rates_session:
-        raise HTTPException(status_code=401, detail="Нэвтэрнэ үү")
+def issue_access_token(user: AuthUser) -> str:
+    """Issue a short-lived bearer token after Telegram initData validation.
+
+    Mini App webviews do not always retain first-party cookies consistently.
+    The frontend keeps this token in memory only; it is never put in local
+    storage or a query string.
+    """
+    now = datetime.now(timezone.utc)
+    return jwt.encode(
+        {
+            "sub": str(user.telegram_id),
+            "username": user.username,
+            "first_name": user.first_name,
+            "iss": "oyuns-rates",
+            "iat": now,
+            "exp": now + ACCESS_TOKEN_TTL,
+        },
+        SESSION_SECRET,
+        algorithm="HS256",
+    )
+
+
+def _user_from_access_token(token: str) -> AuthUser:
     try:
-        payload = serializer.loads(rates_session, max_age=60 * 60 * 12)
-        user = AuthUser(
-            telegram_id=int(payload["telegram_id"]),
+        payload = jwt.decode(
+            token,
+            SESSION_SECRET,
+            algorithms=["HS256"],
+            issuer="oyuns-rates",
+        )
+        return AuthUser(
+            telegram_id=int(payload["sub"]),
             username=str(payload.get("username") or ""),
             first_name=str(payload.get("first_name") or ""),
         )
-    except (BadSignature, SignatureExpired, KeyError, ValueError) as exc:
-        raise HTTPException(status_code=401, detail="Нэвтрэх хугацаа дууссан") from exc
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="Нэвтрэх токен буруу") from exc
+
+
+def current_user(
+    rates_session: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE),
+    authorization: Optional[str] = Header(default=None),
+) -> AuthUser:
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(status_code=401, detail="Нэвтрэх токен буруу")
+        user = _user_from_access_token(token)
+    else:
+        if not rates_session:
+            raise HTTPException(status_code=401, detail="Нэвтэрнэ үү")
+        try:
+            payload = serializer.loads(rates_session, max_age=60 * 60 * 12)
+            user = AuthUser(
+                telegram_id=int(payload["telegram_id"]),
+                username=str(payload.get("username") or ""),
+                first_name=str(payload.get("first_name") or ""),
+            )
+        except (BadSignature, SignatureExpired, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=401, detail="Нэвтрэх хугацаа дууссан") from exc
     if not is_whitelisted(user.telegram_id):
         raise HTTPException(status_code=403, detail="Танд ашиглах эрх байхгүй")
     return user
@@ -139,6 +187,11 @@ def current_user(
 def oidc_login_response() -> RedirectResponse:
     if not TELEGRAM_OIDC_CLIENT_SECRET:
         raise HTTPException(status_code=503, detail="Telegram web login тохируулаагүй")
+    if not APP_BASE_URL.startswith("https://"):
+        raise HTTPException(
+            status_code=503,
+            detail="APP_BASE_URL нь production HTTPS URL байх ёстой",
+        )
     state = secrets.token_urlsafe(24)
     verifier = secrets.token_urlsafe(48)
     nonce = secrets.token_urlsafe(24)

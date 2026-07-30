@@ -38,6 +38,10 @@ _ALL_PAIRS: dict[str, str] = {
 class RapiraProvider(BaseProvider):
     NAME = "Rapira"
     PAIRS = _ALL_PAIRS
+    FORMULA_FIELDS = {
+        symbol: (("buy", "sell") if symbol in _BIDASK_PAIRS else ("rate", "bid", "ask"))
+        for symbol in PAIRS
+    }
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         if symbol not in _ALL_PAIRS:

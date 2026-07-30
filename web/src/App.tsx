@@ -1,9 +1,13 @@
 import {
   Calculator,
   Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleHelp,
+  Image as ImageIcon,
   Moon,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -13,14 +17,31 @@ import {
   SlidersHorizontal,
   Sun,
   Trash2,
+  Upload,
   WalletCards,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, api } from "./api";
-import { haptic, isTelegram, sharePreparedMessage, telegram } from "./telegram";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { ApiError, api, setAccessToken } from "./api";
+import {
+  getTelegramInitData,
+  getTelegramWebApp,
+  haptic,
+  isTelegramLaunch,
+  sharePreparedMessage,
+} from "./telegram";
 import type {
+  BrandingSettings,
+  CalculationShareMode,
   CatalogProvider,
+  FormulaDefinition,
+  FormulaOperand,
   RateSnapshot,
   Subscription,
   TabId,
@@ -29,6 +50,7 @@ import type {
 } from "./types";
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
+const LONG_PRESS_MS = 500;
 
 const TABS: Array<{
   id: TabId;
@@ -66,14 +88,55 @@ function upsertRates(
   return Array.from(next.values());
 }
 
+function LogoImage({
+  src,
+  alt,
+  className = "source-logo",
+}: {
+  src?: string | null;
+  alt: string;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (!src || failed) {
+    return (
+      <span className={`${className} logo-fallback`} aria-hidden="true">
+        <ImageIcon size={14} />
+      </span>
+    );
+  }
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function BrandMark({ src, className }: { src?: string | null; className: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (!src || failed) return <div className={className}>Ө</div>;
+  return (
+    <div className={`${className} has-image`}>
+      <img src={src} alt="Апп лого" onError={() => setFailed(true)} />
+    </div>
+  );
+}
+
 interface RateRowsProps {
   rates: RateSnapshot[];
   sharing: boolean;
   selected: Set<string>;
   refreshing: Set<string>;
   onToggle(key: string): void;
+  onBeginSelection(key: string): void;
   onRefresh(key: string): void;
   onShare(keys: string[]): void;
+  sourceLogos: BrandingSettings["sourceLogos"];
 }
 
 function RateRows({
@@ -82,9 +145,14 @@ function RateRows({
   selected,
   refreshing,
   onToggle,
+  onBeginSelection,
   onRefresh,
   onShare,
+  sourceLogos,
 }: RateRowsProps) {
+  const pressTimers = useRef(new Map<string, number>());
+  const pressStarts = useRef(new Map<string, { x: number; y: number }>());
+  const suppressedClicks = useRef(new Set<string>());
   const groups = useMemo(() => {
     const result = new Map<string, RateSnapshot[]>();
     rates.forEach((rate) => {
@@ -94,19 +162,74 @@ function RateRows({
     return Array.from(result.entries());
   }, [rates]);
 
+  const cancelPress = (key: string) => {
+    const timer = pressTimers.current.get(key);
+    if (timer !== undefined) window.clearTimeout(timer);
+    pressTimers.current.delete(key);
+    pressStarts.current.delete(key);
+  };
+
+  useEffect(
+    () => () => {
+      pressTimers.current.forEach((timer) => window.clearTimeout(timer));
+      pressTimers.current.clear();
+      pressStarts.current.clear();
+    },
+    [],
+  );
+
   return (
     <div className="rate-groups">
       {groups.map(([source, items]) => (
         <section className="ledger-group" key={source}>
           <div className="group-heading">
-            <span>{source}</span>
+            <span>
+              {source !== "Тооцоолсон ханш" && (
+                <LogoImage
+                  src={sourceLogos[source]?.url}
+                  alt={`${source} лого`}
+                />
+              )}
+              {source}
+            </span>
             <span>{items.length.toString().padStart(2, "0")}</span>
           </div>
           {items.map((rate) => (
             <article
               className={`rate-row ${selected.has(rate.key) ? "is-selected" : ""}`}
               key={rate.key}
-              onClick={() => sharing && onToggle(rate.key)}
+              onPointerDown={(event) => {
+                if (
+                  sharing ||
+                  (event.target as HTMLElement).closest("button")
+                ) return;
+                pressStarts.current.set(rate.key, {
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+                pressTimers.current.set(rate.key, window.setTimeout(() => {
+                  suppressedClicks.current.add(rate.key);
+                  onBeginSelection(rate.key);
+                  cancelPress(rate.key);
+                }, LONG_PRESS_MS));
+              }}
+              onPointerMove={(event) => {
+                const start = pressStarts.current.get(rate.key);
+                if (
+                  start &&
+                  Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10
+                ) cancelPress(rate.key);
+              }}
+              onPointerUp={() => cancelPress(rate.key)}
+              onPointerCancel={() => cancelPress(rate.key)}
+              onPointerLeave={() => cancelPress(rate.key)}
+              onClick={() => {
+                if (suppressedClicks.current.has(rate.key)) {
+                  suppressedClicks.current.delete(rate.key);
+                  return;
+                }
+                if (sharing) onToggle(rate.key);
+              }}
             >
               {sharing && (
                 <button
@@ -178,6 +301,7 @@ interface ManageSheetProps {
   onClose(): void;
   onChanged(): Promise<void>;
   notify(message: string, error?: boolean): void;
+  sourceLogos: BrandingSettings["sourceLogos"];
 }
 
 function ManageSheet({
@@ -187,6 +311,7 @@ function ManageSheet({
   onClose,
   onChanged,
   notify,
+  sourceLogos,
 }: ManageSheetProps) {
   const [query, setQuery] = useState("");
   const [providerFilter, setProviderFilter] = useState("Бүгд");
@@ -213,7 +338,7 @@ function ManageSheet({
         pairs: provider.pairs.filter(
           (pair) =>
             !normalized ||
-            `${provider.name} ${pair.symbol} ${pair.label}`
+                  `${provider.name} ${provider.label} ${pair.symbol} ${pair.label}`
               .toLowerCase()
               .includes(normalized),
         ),
@@ -282,20 +407,35 @@ function ManageSheet({
           />
         </label>
         <div className="filter-strip">
-          {["Бүгд", ...catalog.map((item) => item.name)].map((name) => (
+          {[
+            { name: "Бүгд", label: "Бүгд" },
+            ...catalog.map((item) => ({ name: item.name, label: item.label })),
+          ].map(({ name, label }) => (
             <button
               key={name}
               className={providerFilter === name ? "active" : ""}
               onClick={() => setProviderFilter(name)}
             >
-              {name}
+              {name !== "Бүгд" && (
+                <LogoImage
+                  src={sourceLogos[name]?.url}
+                  alt={`${name} лого`}
+                />
+              )}
+              {label}
             </button>
           ))}
         </div>
         <div className="catalog-list">
           {filtered.map((provider) => (
             <section key={provider.name}>
-              <div className="catalog-provider">{provider.name}</div>
+              <div className="catalog-provider">
+                <LogoImage
+                  src={sourceLogos[provider.name]?.url}
+                  alt={`${provider.name} лого`}
+                />
+                {provider.label}
+              </div>
               {provider.pairs.map((pair) => {
                 const key = `${provider.name}:${pair.symbol}`;
                 const checked = subscriptionsByKey.has(key);
@@ -336,14 +476,19 @@ function ManageSheet({
 
 interface CalculatorPageProps {
   availableRates: RateSnapshot[];
-  onShare(tokens: Array<string | number>): void;
+  onShare(
+    tokens: Array<string | number>,
+    mode: CalculationShareMode,
+  ): void;
   notify(message: string, error?: boolean): void;
+  sourceLogos: BrandingSettings["sourceLogos"];
 }
 
 function CalculatorPage({
   availableRates,
   onShare,
   notify,
+  sourceLogos,
 }: CalculatorPageProps) {
   const [tokens, setTokens] = useState<Array<string | number>>([]);
   const [picker, setPicker] = useState(false);
@@ -461,10 +606,22 @@ function CalculatorPage({
           </button>
         </div>
         {result && (
-          <button className="primary-button full" onClick={() => onShare(tokens)}>
-            <Send size={17} />
-            Хариуг хуваалцах
-          </button>
+          <div className="calculation-share-actions">
+            <button
+              className="primary-button"
+              onClick={() => onShare(tokens, "full")}
+            >
+              <Send size={17} />
+              Бүтэн дүн
+            </button>
+            <button
+              className="secondary-button"
+              onClick={() => onShare(tokens, "hundredths")}
+            >
+              <Send size={17} />
+              2 орны дүн
+            </button>
+          </div>
         )}
       </section>
       {picker && (
@@ -490,7 +647,15 @@ function CalculatorPage({
                   <div className="picker-row" key={rate.key}>
                     <span>
                       <strong>{rate.pair}</strong>
-                      <small>{rate.source}</small>
+                      <small>
+                        {rate.kind === "subscription" && (
+                          <LogoImage
+                            src={sourceLogos[rate.source]?.url}
+                            alt={`${rate.source} лого`}
+                          />
+                        )}
+                        {rate.source}
+                      </small>
                     </span>
                     <div>
                       {rate.values.map((value) => (
@@ -513,12 +678,433 @@ function CalculatorPage({
   );
 }
 
+type FormulaDraft = Omit<
+  FormulaDefinition,
+  "id" | "sortOrder" | "updatedAt"
+>;
+
+interface FormulaRateOption {
+  key: string;
+  label: string;
+  operand: {
+    kind: "rate";
+    provider: string;
+    symbol: string;
+    field: string;
+  };
+}
+
+function FormulaManager({
+  open,
+  formulas,
+  catalog,
+  onClose,
+  onChanged,
+  notify,
+}: {
+  open: boolean;
+  formulas: FormulaDefinition[];
+  catalog: CatalogProvider[];
+  onClose(): void;
+  onChanged(): Promise<void>;
+  notify(message: string, error?: boolean): void;
+}) {
+  const options = useMemo<FormulaRateOption[]>(
+    () =>
+      catalog.flatMap((provider) =>
+        provider.pairs.flatMap((pair) =>
+          (pair.formulaFields || []).map((field) => ({
+            key: `${provider.name}\u001f${pair.symbol}\u001f${field.key}`,
+            label: `${provider.label} · ${pair.symbol} · ${field.label}`,
+            operand: {
+              kind: "rate" as const,
+              provider: provider.name,
+              symbol: pair.symbol,
+              field: field.key,
+            },
+          })),
+        ),
+      ),
+    [catalog],
+  );
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<FormulaDraft | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const startNew = () => {
+    if (!options.length) return;
+    setEditingId(null);
+    setDraft({
+      title: "",
+      left: options[0].operand,
+      operator: "*",
+      right: { kind: "constant", value: "1" },
+      adjustmentPercent: null,
+      precision: 2,
+      enabled: true,
+    });
+  };
+
+  const startEdit = (formula: FormulaDefinition) => {
+    setEditingId(formula.id);
+    setDraft({
+      title: formula.title,
+      left: formula.left,
+      operator: formula.operator,
+      right: formula.right,
+      adjustmentPercent: formula.adjustmentPercent,
+      precision: formula.precision,
+      enabled: formula.enabled,
+    });
+  };
+
+  const chooseRate = (key: string) =>
+    options.find((option) => option.key === key)?.operand;
+  const operandKey = (operand: FormulaOperand) =>
+    operand.kind === "rate"
+      ? `${operand.provider}\u001f${operand.symbol}\u001f${operand.field}`
+      : "";
+
+  const save = async () => {
+    if (!draft) return;
+    setBusy(true);
+    try {
+      if (editingId) await api.updateFormula(editingId, draft);
+      else await api.createFormula(draft);
+      await onChanged();
+      setDraft(null);
+      setEditingId(null);
+      notify("Томьёог хадгаллаа");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Томьёо хадгалах боломжгүй", true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateExisting = async (
+    formula: FormulaDefinition,
+    changes: Partial<FormulaDraft>,
+  ) => {
+    setBusy(true);
+    try {
+      await api.updateFormula(formula.id, {
+        title: formula.title,
+        left: formula.left,
+        operator: formula.operator,
+        right: formula.right,
+        adjustmentPercent: formula.adjustmentPercent,
+        precision: formula.precision,
+        enabled: formula.enabled,
+        ...changes,
+      });
+      await onChanged();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Томьёо шинэчлэх боломжгүй", true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const move = async (index: number, direction: -1 | 1) => {
+    const destination = index + direction;
+    if (destination < 0 || destination >= formulas.length) return;
+    const ids = formulas.map((formula) => formula.id);
+    [ids[index], ids[destination]] = [ids[destination], ids[index]];
+    setBusy(true);
+    try {
+      await api.orderFormulas(ids);
+      await onChanged();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Дараалал хадгалах боломжгүй", true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="sheet-backdrop" onMouseDown={onClose}>
+      <section
+        className="sheet formula-manager-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Томьёо удирдах"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="sheet-handle" />
+        <header className="sheet-header">
+          <div>
+            <span className="eyebrow">ГЛОБАЛ ТОХИРГОО</span>
+            <h2>Томьёо удирдах</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Хаах">
+            <X size={20} />
+          </button>
+        </header>
+        <div className="formula-manager-body">
+          {!draft ? (
+            <>
+              <button
+                className="primary-button formula-add-button"
+                onClick={startNew}
+                disabled={!options.length || busy}
+              >
+                <Plus size={17} />
+                Шинэ томьёо
+              </button>
+              <div className="formula-definition-list">
+                {formulas.map((formula, index) => (
+                  <article
+                    className={`formula-definition-row ${formula.enabled ? "" : "disabled"}`}
+                    key={formula.id}
+                  >
+                    <div>
+                      <strong>{formula.title}</strong>
+                      <small>
+                        {formula.left.provider} {formula.left.symbol}{" "}
+                        {formula.operator === "*" ? "×" : formula.operator === "/" ? "÷" : formula.operator}{" "}
+                        {formula.right.kind === "constant"
+                          ? formula.right.value
+                          : `${formula.right.provider} ${formula.right.symbol}`}
+                        {formula.adjustmentPercent
+                          ? ` · ${Number(formula.adjustmentPercent) > 0 ? "+" : ""}${formula.adjustmentPercent}%`
+                          : ""}
+                      </small>
+                    </div>
+                    <div className="formula-row-actions">
+                      <button
+                        className="icon-button"
+                        aria-label="Дээш"
+                        disabled={busy || index === 0}
+                        onClick={() => void move(index, -1)}
+                      >
+                        <ChevronUp size={16} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label="Доош"
+                        disabled={busy || index === formulas.length - 1}
+                        onClick={() => void move(index, 1)}
+                      >
+                        <ChevronDown size={16} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label="Засах"
+                        disabled={busy}
+                        onClick={() => startEdit(formula)}
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        className={`compact-toggle ${formula.enabled ? "active" : ""}`}
+                        disabled={busy}
+                        onClick={() =>
+                          void updateExisting(formula, { enabled: !formula.enabled })
+                        }
+                      >
+                        {formula.enabled ? "Идэвхтэй" : "Унтраасан"}
+                      </button>
+                      <button
+                        className="icon-button danger-icon"
+                        aria-label="Устгах"
+                        disabled={busy}
+                        onClick={() => {
+                          if (!window.confirm(`“${formula.title}” томьёог устгах уу?`)) return;
+                          setBusy(true);
+                          void api
+                            .deleteFormula(formula.id)
+                            .then(onChanged)
+                            .catch((error) =>
+                              notify(
+                                error instanceof Error ? error.message : "Устгах боломжгүй",
+                                true,
+                              ),
+                            )
+                            .finally(() => setBusy(false));
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="formula-editor">
+              <label>
+                <span>Нэр</span>
+                <input
+                  maxLength={80}
+                  value={draft.title}
+                  onChange={(event) =>
+                    setDraft({ ...draft, title: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>Зүүн ханш</span>
+                <select
+                  value={operandKey(draft.left)}
+                  onChange={(event) => {
+                    const selected = chooseRate(event.target.value);
+                    if (selected) setDraft({ ...draft, left: selected });
+                  }}
+                >
+                  {options.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Үйлдэл</span>
+                <select
+                  value={draft.operator}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      operator: event.target.value as FormulaDraft["operator"],
+                    })
+                  }
+                >
+                  <option value="+">+</option>
+                  <option value="-">−</option>
+                  <option value="*">×</option>
+                  <option value="/">÷</option>
+                </select>
+              </label>
+              <label>
+                <span>Баруун утгын төрөл</span>
+                <select
+                  value={draft.right.kind}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      right:
+                        event.target.value === "constant"
+                          ? { kind: "constant", value: "1" }
+                          : options[0].operand,
+                    })
+                  }
+                >
+                  <option value="constant">Тогтмол тоо</option>
+                  <option value="rate">Ханш</option>
+                </select>
+              </label>
+              {draft.right.kind === "constant" ? (
+                <label>
+                  <span>Тогтмол утга</span>
+                  <input
+                    inputMode="decimal"
+                    value={draft.right.value}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        right: { kind: "constant", value: event.target.value },
+                      })
+                    }
+                  />
+                </label>
+              ) : (
+                <label>
+                  <span>Баруун ханш</span>
+                  <select
+                    value={operandKey(draft.right)}
+                    onChange={(event) => {
+                      const selected = chooseRate(event.target.value);
+                      if (selected) setDraft({ ...draft, right: selected });
+                    }}
+                  >
+                    {options.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="formula-editor-grid">
+                <label>
+                  <span>Нэмэлт хувь</span>
+                  <input
+                    inputMode="decimal"
+                    placeholder="Ж: 1 эсвэл -0.5"
+                    value={draft.adjustmentPercent || ""}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        adjustmentPercent: event.target.value || null,
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Аравтын орон</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={8}
+                    value={draft.precision}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        precision: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <label className="formula-enabled">
+                <input
+                  type="checkbox"
+                  checked={draft.enabled}
+                  onChange={(event) =>
+                    setDraft({ ...draft, enabled: event.target.checked })
+                  }
+                />
+                <span>Идэвхтэй</span>
+              </label>
+              <div className="formula-editor-actions">
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    setDraft(null);
+                    setEditingId(null);
+                  }}
+                >
+                  Болих
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={busy || !draft.title.trim()}
+                  onClick={() => void save()}
+                >
+                  Хадгалах
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 interface SettingsPageProps {
   user: User;
   theme: ThemeChoice;
   subscriptionCount: number;
+  catalog: CatalogProvider[];
+  branding: BrandingSettings;
   onTheme(theme: ThemeChoice): void;
   onManage(): void;
+  onBranding(branding: BrandingSettings): void;
+  notify(message: string, error?: boolean): void;
   onLogout(): void;
 }
 
@@ -526,11 +1112,47 @@ function SettingsPage({
   user,
   theme,
   subscriptionCount,
+  catalog,
+  branding,
   onTheme,
   onManage,
+  onBranding,
+  notify,
   onLogout,
 }: SettingsPageProps) {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [brandingOpen, setBrandingOpen] = useState(false);
+  const [brandingBusy, setBrandingBusy] = useState<string | null>(null);
+
+  const upload = async (file: File, provider?: string) => {
+    setBrandingBusy(provider || "app");
+    try {
+      const next = provider
+        ? await api.uploadSourceLogo(provider, file)
+        : await api.uploadAppLogo(file);
+      onBranding(next);
+      notify("Лого шинэчлэгдлээ");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Лого оруулах боломжгүй", true);
+    } finally {
+      setBrandingBusy(null);
+    }
+  };
+
+  const remove = async (provider?: string) => {
+    setBrandingBusy(provider || "app");
+    try {
+      const next = provider
+        ? await api.deleteSourceLogo(provider)
+        : await api.deleteAppLogo();
+      onBranding(next);
+      notify("Лого устгагдлаа");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Лого устгах боломжгүй", true);
+    } finally {
+      setBrandingBusy(null);
+    }
+  };
   return (
     <div className="page settings-page">
       <header className="page-header">
@@ -570,6 +1192,90 @@ function SettingsPage({
           ))}
         </div>
       </section>
+      <section className="settings-section">
+        <button
+          className="settings-disclosure"
+          onClick={() => setBrandingOpen((value) => !value)}
+        >
+          <span>
+            <ImageIcon size={19} />
+            Нийтийн лого
+          </span>
+          <ChevronRight
+            size={17}
+            className={brandingOpen ? "chevron-open" : ""}
+          />
+        </button>
+        {brandingOpen && (
+          <div className="branding-manager">
+            <p>
+              Энд хийсэн өөрчлөлт whitelist-д байгаа бүх хэрэглэгчид харагдана.
+            </p>
+            <div className="branding-row">
+              <BrandMark src={branding.appLogoUrl} className="branding-preview" />
+              <strong>Апп лого</strong>
+              <label className="upload-button">
+                <Upload size={15} />
+                Солих
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={brandingBusy === "app"}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void upload(file);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              {branding.appLogoUrl && (
+                <button
+                  className="icon-button danger-icon"
+                  aria-label="Апп лого устгах"
+                  disabled={brandingBusy === "app"}
+                  onClick={() => void remove()}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+            {catalog.map((provider) => (
+              <div className="branding-row" key={provider.name}>
+                <LogoImage
+                  src={branding.sourceLogos[provider.name]?.url}
+                  alt={`${provider.name} лого`}
+                  className="branding-preview"
+                />
+                <strong>{provider.label}</strong>
+                <label className="upload-button">
+                  <Upload size={15} />
+                  Солих
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={brandingBusy === provider.name}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void upload(file, provider.name);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+                {branding.sourceLogos[provider.name]?.url && (
+                  <button
+                    className="icon-button danger-icon"
+                    aria-label={`${provider.name} лого устгах`}
+                    disabled={brandingBusy === provider.name}
+                    onClick={() => void remove(provider.name)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
       <section className="settings-section settings-links">
         <button onClick={onManage}>
           <span>
@@ -604,7 +1310,7 @@ function SettingsPage({
           </div>
         )}
       </section>
-      {!isTelegram && (
+      {!isTelegramLaunch() && (
         <button className="secondary-button logout-button" onClick={onLogout}>
           Гарах
         </button>
@@ -615,19 +1321,28 @@ function SettingsPage({
 }
 
 export default function App() {
-  const [authState, setAuthState] = useState<"loading" | "ready" | "login" | "denied">("loading");
+  const [authState, setAuthState] = useState<
+    "loading" | "ready" | "login" | "denied" | "telegram-error"
+  >("loading");
   const [user, setUser] = useState<User | null>(null);
   const [tab, setTab] = useState<TabId>("rates");
   const [rates, setRates] = useState<RateSnapshot[]>([]);
   const [calculated, setCalculated] = useState<RateSnapshot[]>([]);
+  const [formulas, setFormulas] = useState<FormulaDefinition[]>([]);
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
+  const [branding, setBranding] = useState<BrandingSettings>({
+    appLogoUrl: null,
+    sourceLogos: {},
+  });
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
+  const [formulaManagerOpen, setFormulaManagerOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set());
   const [loadingData, setLoadingData] = useState(true);
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
+  const [telegramError, setTelegramError] = useState("");
   const [theme, setTheme] = useState<ThemeChoice>(
     () => (localStorage.getItem("rates-theme") as ThemeChoice) || "system",
   );
@@ -638,12 +1353,16 @@ export default function App() {
   }, []);
 
   const loadReferenceData = useCallback(async () => {
-    const [catalogData, subscriptionData] = await Promise.all([
+    const [catalogData, subscriptionData, formulaData, brandingData] = await Promise.all([
       api.catalog(),
       api.subscriptions(),
+      api.formulas(),
+      api.branding(),
     ]);
     setCatalog(catalogData.providers);
     setSubscriptions(subscriptionData.subscriptions);
+    setFormulas(formulaData.formulas);
+    setBranding(brandingData);
   }, []);
 
   const loadRates = useCallback(async () => {
@@ -661,10 +1380,17 @@ export default function App() {
   }, []);
 
   const bootstrap = useCallback(async () => {
+    const initData = getTelegramInitData();
     try {
-      if (isTelegram && telegram?.initData) {
-        const session = await api.miniAppLogin(telegram.initData);
+      if (initData) {
+        const session = await api.miniAppLogin(initData);
+        setAccessToken(session.accessToken);
         setUser(session.user);
+      } else if (isTelegramLaunch()) {
+        // A real Mini App must provide signed launch data. Do not silently
+        // fall back to browser OIDC when its BotFather launch is misconfigured.
+        setAuthState("telegram-error");
+        return;
       } else {
         const session = await api.me();
         setUser(session.user);
@@ -672,8 +1398,16 @@ export default function App() {
       setAuthState("ready");
       await Promise.all([loadReferenceData(), loadRates()]);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 403) setAuthState("denied");
-      else setAuthState("login");
+      if (initData) {
+        setTelegramError(
+          error instanceof Error ? error.message : "Telegram нэвтрэхэд алдаа гарлаа",
+        );
+        setAuthState("telegram-error");
+      } else if (error instanceof ApiError && error.status === 403) {
+        setAuthState("denied");
+      } else {
+        setAuthState("login");
+      }
     }
   }, [loadRates, loadReferenceData]);
 
@@ -728,8 +1462,8 @@ export default function App() {
   }, [authState, refresh]);
 
   useEffect(() => {
-    if (authState !== "ready" || !isTelegram) return;
-    const start = telegram?.initDataUnsafe?.start_param;
+    if (authState !== "ready" || !isTelegramLaunch()) return;
+    const start = getTelegramWebApp()?.initDataUnsafe?.start_param;
     if (!start?.startsWith("share_")) return;
     const token = start.slice(6);
     void api
@@ -737,7 +1471,7 @@ export default function App() {
       .then(async ({ preparedMessageId }) => {
         const successful = await sharePreparedMessage(preparedMessageId);
         if (!successful) {
-          telegram?.switchInlineQuery?.(`_b:${token}`, [
+          getTelegramWebApp()?.switchInlineQuery?.(`_b:${token}`, [
             "users",
             "groups",
             "channels",
@@ -753,16 +1487,31 @@ export default function App() {
     await Promise.all([loadReferenceData(), loadRates()]);
   };
 
+  const afterFormulasChanged = async () => {
+    const [formulaData, calculatedData] = await Promise.all([
+      api.formulas(),
+      api.calculated(),
+    ]);
+    setFormulas(formulaData.formulas);
+    setCalculated(calculatedData.rates);
+  };
+
   const doShare = async (
     rateKeys: string[],
     calculationTokens?: Array<string | number>,
+    calculationResultMode: CalculationShareMode = "full",
   ) => {
     try {
-      const share = await api.share(rateKeys, calculationTokens);
-      if (isTelegram) {
+      const share = await api.share(
+        rateKeys,
+        calculationTokens,
+        calculationResultMode,
+      );
+      if (isTelegramLaunch()) {
         const successful = await sharePreparedMessage(share.preparedMessageId);
-        if (!successful && telegram?.switchInlineQuery) {
-          telegram.switchInlineQuery(share.inlineQuery, [
+        const telegramApp = getTelegramWebApp();
+        if (!successful && telegramApp?.switchInlineQuery) {
+          telegramApp.switchInlineQuery(share.inlineQuery, [
             "users",
             "groups",
             "channels",
@@ -793,10 +1542,24 @@ export default function App() {
     haptic();
   };
 
+  const beginSelection = (key: string) => {
+    setSharing(true);
+    setSelected(new Set([key]));
+    haptic("success");
+  };
+
+  useEffect(() => {
+    const valid = new Set([...rates, ...calculated].map((rate) => rate.key));
+    setSelected((current) => {
+      const next = new Set(Array.from(current).filter((key) => valid.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [rates, calculated]);
+
   if (authState === "loading") {
     return (
       <main className="center-state">
-        <div className="brand-mark">Ө</div>
+        <BrandMark src={branding.appLogoUrl} className="brand-mark" />
         <span>Ханш бэлдэж байна…</span>
       </main>
     );
@@ -828,13 +1591,23 @@ export default function App() {
     );
   }
 
+  if (authState === "telegram-error") {
+    return (
+      <main className="center-state denied">
+        <div className="brand-mark">!</div>
+        <h1>Telegram өгөгдөл ирсэнгүй</h1>
+        <p>{telegramError || "Ботын Menu товч эсвэл Main Mini App холбоосоор дахин нээнэ үү."}</p>
+      </main>
+    );
+  }
+
   const activeRates = tab === "calculated" ? calculated : rates;
   const allAvailable = [...rates, ...calculated];
 
   return (
     <div className="app-shell">
       <aside className="desktop-rail">
-        <div className="rail-brand">Ө</div>
+        <BrandMark src={branding.appLogoUrl} className="rail-brand" />
         <nav>
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
@@ -855,7 +1628,7 @@ export default function App() {
             <header className="page-header">
               <div>
                 <span className="eyebrow">
-                  {tab === "rates" ? "МИНИЙ ЖАГСААЛТ" : "ТОГТМОЛ ГУРВАН ХАНШ"}
+                  {tab === "rates" ? "МИНИЙ ЖАГСААЛТ" : "ГЛОБАЛ ТОМЬЁОНУУД"}
                 </span>
                 <h1>{tab === "rates" ? "Ханш" : "Тооцоолсон"}</h1>
               </div>
@@ -863,6 +1636,15 @@ export default function App() {
                 {tab === "rates" && (
                   <button className="icon-button bordered" onClick={() => setManageOpen(true)}>
                     <Plus size={19} />
+                  </button>
+                )}
+                {tab === "calculated" && (
+                  <button
+                    className="icon-button bordered"
+                    onClick={() => setFormulaManagerOpen(true)}
+                    aria-label="Томьёо удирдах"
+                  >
+                    <Pencil size={18} />
                   </button>
                 )}
                 <button
@@ -895,17 +1677,32 @@ export default function App() {
                 selected={selected}
                 refreshing={refreshing}
                 onToggle={toggleSelected}
+                onBeginSelection={beginSelection}
                 onRefresh={(key) => refresh([key])}
                 onShare={(keys) => void doShare(keys)}
+                sourceLogos={branding.sourceLogos}
               />
             ) : (
               <section className="empty-ledger">
                 <span>00</span>
-                <h2>Хадгалсан ханш алга</h2>
-                <p>Өдөр бүр хардаг эх сурвалж, валютын хослолоо нэмнэ үү.</p>
-                <button className="primary-button" onClick={() => setManageOpen(true)}>
+                <h2>
+                  {tab === "rates" ? "Хадгалсан ханш алга" : "Идэвхтэй томьёо алга"}
+                </h2>
+                <p>
+                  {tab === "rates"
+                    ? "Өдөр бүр хардаг эх сурвалж, валютын хослолоо нэмнэ үү."
+                    : "Шинэ тооцоолсон ханшийн томьёо нэмэх эсвэл унтраасан томьёог идэвхжүүлнэ үү."}
+                </p>
+                <button
+                  className="primary-button"
+                  onClick={() =>
+                    tab === "rates"
+                      ? setManageOpen(true)
+                      : setFormulaManagerOpen(true)
+                  }
+                >
                   <Plus size={17} />
-                  Ханш нэмэх
+                  {tab === "rates" ? "Ханш нэмэх" : "Томьёо удирдах"}
                 </button>
               </section>
             )}
@@ -914,8 +1711,9 @@ export default function App() {
         {tab === "calculator" && (
           <CalculatorPage
             availableRates={allAvailable}
-            onShare={(tokens) => void doShare([], tokens)}
+            onShare={(tokens, mode) => void doShare([], tokens, mode)}
             notify={notify}
+            sourceLogos={branding.sourceLogos}
           />
         )}
         {tab === "settings" && user && (
@@ -923,10 +1721,15 @@ export default function App() {
             user={user}
             theme={theme}
             subscriptionCount={subscriptions.length}
+            catalog={catalog}
+            branding={branding}
             onTheme={setTheme}
             onManage={() => setManageOpen(true)}
+            onBranding={setBranding}
+            notify={notify}
             onLogout={() => {
               void api.logout().then(() => {
+                setAccessToken(null);
                 setUser(null);
                 setAuthState("login");
               });
@@ -961,6 +1764,15 @@ export default function App() {
         subscriptions={subscriptions}
         onClose={() => setManageOpen(false)}
         onChanged={afterSubscriptionsChanged}
+        notify={notify}
+        sourceLogos={branding.sourceLogos}
+      />
+      <FormulaManager
+        open={formulaManagerOpen}
+        formulas={formulas}
+        catalog={catalog}
+        onClose={() => setFormulaManagerOpen(false)}
+        onChanged={afterFormulasChanged}
         notify={notify}
       />
       {toast && (
