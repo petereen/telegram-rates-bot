@@ -29,6 +29,10 @@ SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
 SUPABASE_STORAGE_KEY: str = os.getenv("SUPABASE_STORAGE_KEY", SUPABASE_KEY)
 
 CACHE_TTL: int = int(os.getenv("CACHE_TTL", "300"))
+REFRESH_WORKER_INTERVAL_SECONDS: int = int(os.getenv("REFRESH_WORKER_INTERVAL_SECONDS", "60"))
+REFRESH_WORKER_CONCURRENCY: int = int(os.getenv("REFRESH_WORKER_CONCURRENCY", "4"))
+REFRESH_LEASE_SECONDS: int = int(os.getenv("REFRESH_LEASE_SECONDS", "60"))
+DAILY_REFRESH_HOUR_UB: int = int(os.getenv("DAILY_REFRESH_HOUR_UB", "9"))
 APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 SESSION_SECRET: str = os.getenv("SESSION_SECRET", TELEGRAM_BOT_TOKEN)
 SESSION_COOKIE_SECURE: bool = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"

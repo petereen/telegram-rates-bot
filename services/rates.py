@@ -146,7 +146,10 @@ def get_rate_snapshot(provider: str, symbol: str, force: bool = False) -> RateSn
                 return snapshot
             data = {"lines": [f"{provider} {symbol}: fetch error"]}
         fetched_at = cached[1] if cached else datetime.now(timezone.utc)
-        return snapshot_from_provider_data(provider, symbol, data, fetched_at=fetched_at)
+        status = "stale" if cached and not rate_provider.is_fresh(cached[1]) else "fresh"
+        return snapshot_from_provider_data(
+            provider, symbol, data, fetched_at=fetched_at, status=status
+        )
 
     try:
         stale = get_cached_rate_entry(provider, symbol, include_stale=True)
@@ -154,17 +157,17 @@ def get_rate_snapshot(provider: str, symbol: str, force: bool = False) -> RateSn
         log.warning("Stale cache read failed for %s/%s: %s", provider, symbol, exc)
         stale = None
     try:
-        data = rate_provider.fetch(symbol)
+        data = rate_provider.refresh_rate(symbol, force=True, stale=stale)
     except Exception as exc:
         log.warning("Forced refresh failed for %s/%s: %s", provider, symbol, exc)
         data = {"lines": [f"{provider} {symbol}: fetch error"]}
 
     if _is_success(data):
         try:
-            set_cached_rate(provider, symbol, data)
-        except Exception as exc:
-            log.warning("Snapshot cache write failed for %s/%s: %s", provider, symbol, exc)
-        return snapshot_from_provider_data(provider, symbol, data)
+            fetched = get_cached_rate_entry(provider, symbol, include_stale=True)
+        except Exception:
+            fetched = None
+        return snapshot_from_provider_data(provider, symbol, data, fetched_at=fetched[1] if fetched else None)
     if stale and _is_success(stale[0]):
         snapshot = snapshot_from_provider_data(
             provider, symbol, stale[0], fetched_at=stale[1], status="stale"

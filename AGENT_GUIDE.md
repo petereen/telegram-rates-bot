@@ -182,12 +182,13 @@ Every provider must:
 3. Implement `fetch(symbol)` for live data.
 4. Return at least `{"lines": ["display-ready line"]}`.
 
-`BaseProvider.get_rate()` checks process memory, then Supabase, then performs a
-live fetch. Live market providers use `CACHE_TTL` seconds (default: 300).
-Daily-published bank and central-bank providers set `CACHE_DAILY = True` and
-reuse one successful Supabase snapshot per Ulaanbaatar calendar day. Failed
-daily fetches are not cached for the rest of the day, and manual refreshes
-still bypass normal cache reads.
+`BaseProvider.get_rate()` serves a shared snapshot until the provider's policy
+is due, then refreshes it under a short Supabase lease. Binance and Rapira use
+five minutes; XE and Profinance use one hour; bank and central-bank feeds use
+the next configurable daily Ulaanbaatar refresh window (09:00 by default).
+The dedicated `refresher` Compose service updates only unique subscription and
+enabled-formula dependencies. User refreshes remain cache-aware; only the
+authenticated agent API can explicitly force an upstream refresh.
 
 Registered through `providers/registry.py`: `CBR`, `XE`, `Binance`, `Rapira`,
 `Profinance`, `BOC`, and all 15 institutions exposed by

@@ -23,7 +23,7 @@ from typing import Any
 
 from supabase import create_client, Client
 
-from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_STORAGE_KEY, CACHE_TTL
+from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_STORAGE_KEY, CACHE_TTL, REFRESH_LEASE_SECONDS
 
 log = logging.getLogger(__name__)
 
@@ -297,7 +297,11 @@ def get_daily_cached_rate(
     return data  # type: ignore[return-value]
 
 
-def set_cached_rate(provider: str, symbol: str, rate_data: dict[str, Any]) -> None:
+def set_cached_rate(
+    provider: str, symbol: str, rate_data: dict[str, Any], *,
+    next_refresh_at: datetime | None = None,
+    source_updated_at: datetime | None = None,
+) -> None:
     """Upsert a rate into the cache (in-memory + Supabase)."""
     now = datetime.now(timezone.utc)
     _mem_cache[(provider, symbol)] = (now, rate_data)
@@ -308,9 +312,41 @@ def set_cached_rate(provider: str, symbol: str, rate_data: dict[str, Any]) -> No
             "symbol": symbol,
             "rate_data": json.dumps(rate_data),
             "fetched_at": now.isoformat(),
+            "next_refresh_at": next_refresh_at.isoformat() if next_refresh_at else None,
+            "source_updated_at": source_updated_at.isoformat() if source_updated_at else None,
+            "refresh_lock_until": None,
         },
         on_conflict="provider,symbol",
     ).execute()
+
+
+def try_acquire_rate_refresh_lease(provider: str, symbol: str) -> bool:
+    """Claim the database lease used to deduplicate upstream fetches."""
+    result = _get_client().rpc("claim_rate_refresh_lease", {
+        "p_provider": provider, "p_symbol": symbol,
+        "p_lease_seconds": REFRESH_LEASE_SECONDS,
+    }).execute()
+    return bool(result.data)
+
+
+def release_rate_refresh_lease(provider: str, symbol: str) -> None:
+    _get_client().rpc("release_rate_refresh_lease", {
+        "p_provider": provider, "p_symbol": symbol,
+    }).execute()
+
+
+def get_all_active_rate_pairs() -> set[tuple[str, str]]:
+    """Return the unique watchlist and enabled-formula dependencies."""
+    sb = _get_client()
+    pairs = {
+        (row["provider"], row["symbol"])
+        for row in sb.table("user_subscriptions").select("provider,symbol").execute().data
+    }
+    for formula in get_formula_definitions(include_disabled=False):
+        for operand in (formula["left_operand"], formula["right_operand"]):
+            if operand.get("kind") == "rate":
+                pairs.add((operand["provider"], operand["symbol"]))
+    return pairs
 
 
 # ── Short-lived share bundles ─────────────────────────────────────────

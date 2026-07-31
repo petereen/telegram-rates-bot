@@ -76,26 +76,34 @@ class CBRProvider(BaseProvider):
     }
     FORMULA_FIELDS = {symbol: ("rate",) for symbol in PAIRS}
 
-    # We fetch the entire XML once and parse all currencies.
-    # To avoid redundant HTTP calls when the user has several CBR pairs,
-    # the cache layer in BaseProvider handles dedup per-symbol.
+    def _fetch_all(self) -> dict[str, float]:
+        resp = requests.get(CBR_URL, timeout=15)
+        resp.raise_for_status()
+        values: dict[str, float] = {}
+        for valute in ElementTree.fromstring(resp.content).iter("Valute"):
+            code = valute.findtext("CharCode", "")
+            try:
+                values[code] = float(valute.findtext("Value", "0").replace(",", ".")) / int(valute.findtext("Nominal", "1"))
+            except ValueError:
+                continue
+        return values
+
+    def _rate_data(self, symbol: str, values: dict[str, float]) -> dict[str, Any]:
+        rate = values.get(_CBR_CODE_MAP[symbol])
+        return ({"lines": [f"CBR {symbol}: `{rate:.4f}`"], "rate": rate}
+                if rate is not None else {"lines": [f"CBR {symbol}: not found"]})
 
     def fetch(self, symbol: str) -> dict[str, Any]:
         code = _CBR_CODE_MAP.get(symbol)
         if code is None:
             return {"lines": [f"CBR {symbol}: unsupported"]}
 
-        resp = requests.get(CBR_URL, timeout=15)
-        resp.raise_for_status()
+        return self._rate_data(symbol, self._fetch_all())
 
-        root = ElementTree.fromstring(resp.content)
-        for valute in root.iter("Valute"):
-            char_code = valute.findtext("CharCode", "")
-            if char_code == code:
-                nominal = int(valute.findtext("Nominal", "1"))
-                value_str = valute.findtext("Value", "0").replace(",", ".")
-                value = float(value_str) / nominal
-                line = f"CBR {symbol}: `{value:.4f}`"
-                return {"lines": [line], "rate": value}
-
-        return {"lines": [f"CBR {symbol}: not found"]}
+    def fetch_many(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        values = self._fetch_all()
+        return {
+            symbol: self._rate_data(symbol, values) if symbol in _CBR_CODE_MAP
+            else {"lines": [f"CBR {symbol}: unsupported"]}
+            for symbol in symbols
+        }

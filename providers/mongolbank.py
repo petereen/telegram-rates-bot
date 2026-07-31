@@ -176,6 +176,13 @@ class MongolBankProvider(BaseProvider):
             if len(code) == 3 and code.isalpha() and code.upper() != "MNT"
         }
 
+    def fetch_many(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        all_rates = self.fetch_all()
+        return {
+            symbol: all_rates.get(symbol, {"lines": [f"MongolBank {symbol}: not found"]})
+            for symbol in symbols
+        }
+
     def fetch(self, symbol: str) -> dict[str, Any]:
         if not self.supports_pair(symbol):
             return {"lines": [f"MongolBank {symbol}: unsupported"]}

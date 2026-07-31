@@ -623,7 +623,9 @@ async def refresh_rates(
     keys = payload.keys
     if not keys:
         keys = sorted(await _allowed_keys(user))
-    snapshots = await _resolve_keys(user, keys, force=True)
+    # A user refresh is cache-aware. Stale/missing entries refresh in the
+    # request path; a warm cache never causes another paid upstream call.
+    snapshots = await _resolve_keys(user, keys, force=False)
     return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
 
 

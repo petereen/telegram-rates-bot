@@ -32,3 +32,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  refresher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "refresher.py"]
+    env_file:
+      - .env
+    restart: unless-stopped
+    init: true

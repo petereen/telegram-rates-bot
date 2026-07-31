@@ -36,8 +36,41 @@ create table if not exists public.cached_rates (
     symbol      text         not null,
     rate_data   jsonb        not null default '{}'::jsonb,
     fetched_at  timestamptz  not null default now(),
+    next_refresh_at timestamptz,
+    source_updated_at timestamptz,
+    refresh_lock_until timestamptz,
     primary key (provider, symbol)
 );
+
+-- Existing installations receive the same scheduler metadata.
+alter table public.cached_rates add column if not exists next_refresh_at timestamptz;
+alter table public.cached_rates add column if not exists source_updated_at timestamptz;
+alter table public.cached_rates add column if not exists refresh_lock_until timestamptz;
+create index if not exists idx_cached_rates_due on public.cached_rates(next_refresh_at);
+
+-- Atomically claim a short cross-process lease before an upstream request.
+create or replace function public.claim_rate_refresh_lease(
+    p_provider text, p_symbol text, p_lease_seconds integer default 60
+) returns boolean language plpgsql security definer as $$
+declare claimed boolean;
+begin
+  insert into public.cached_rates (provider, symbol, rate_data, refresh_lock_until)
+  values (p_provider, p_symbol, '{}'::jsonb, now() + make_interval(secs => p_lease_seconds))
+  on conflict (provider, symbol) do update
+     set refresh_lock_until = excluded.refresh_lock_until
+   where public.cached_rates.refresh_lock_until is null
+      or public.cached_rates.refresh_lock_until < now()
+  returning true into claimed;
+  return coalesce(claimed, false);
+end;
+$$;
+
+create or replace function public.release_rate_refresh_lease(
+    p_provider text, p_symbol text
+) returns void language sql security definer as $$
+  update public.cached_rates set refresh_lock_until = null
+   where provider = p_provider and symbol = p_symbol;
+$$;
 
 -- 5. Short-lived selections used to hand browser sharing into the Mini App.
 create table if not exists public.share_bundles (

@@ -83,6 +83,7 @@ def _scrape_all_pairs() -> dict[str, dict[str, Any]]:
 @register_provider
 class ProfinanceProvider(BaseProvider):
     NAME = "Profinance"
+    REFRESH_POLICY = "hourly"
     PAIRS = {
         "USD/RUB": "Dollar / Ruble (Forex)",
         "EUR/RUB": "Euro / Ruble (Forex)",

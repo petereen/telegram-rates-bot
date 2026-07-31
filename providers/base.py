@@ -14,14 +14,17 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 from abc import ABC, abstractmethod
 from typing import Any
 
 from db.supabase_client import (
-    get_cached_rate,
-    get_daily_cached_rate,
+    get_cached_rate_entry,
+    release_rate_refresh_lease,
     set_cached_rate,
+    try_acquire_rate_refresh_lease,
 )
+from config import DAILY_REFRESH_HOUR_UB
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +46,9 @@ class BaseProvider(ABC):
     # Daily-published sources keep one durable snapshot per Ulaanbaatar day.
     # Live market/crypto providers retain the shorter global CACHE_TTL.
     CACHE_DAILY: bool = False
+    # Compatibility flag above is retained for third-party providers. New code
+    # uses this explicit policy: live (five minutes), hourly, or daily.
+    REFRESH_POLICY: str = "live"
     CACHE_UTC_OFFSET_HOURS: int = 8
     PAIRS: dict[str, str] = {}
     FORMULA_FIELDS: dict[str, tuple[str, ...]] = {}
@@ -57,80 +63,88 @@ class BaseProvider(ABC):
 
     # ── public entry point (cache-aware) ───────────────────────────────
 
-    def get_rate(self, symbol: str) -> dict[str, Any]:
-        """Return rate_data dict, using cache when available."""
-        if self.CACHE_DAILY:
-            return self._get_daily_rate(symbol)
+    def _policy(self) -> str:
+        return "daily" if self.CACHE_DAILY else self.REFRESH_POLICY
 
+    def is_fresh(self, fetched_at: datetime, now: datetime | None = None) -> bool:
+        now = now or datetime.now(timezone.utc)
+        policy = self._policy()
+        if policy == "daily":
+            ub = timezone(timedelta(hours=8))
+            today_window = now.astimezone(ub).replace(
+                hour=DAILY_REFRESH_HOUR_UB, minute=0, second=0, microsecond=0
+            )
+            # Before today's window, a snapshot from yesterday remains valid.
+            required_window = today_window if now.astimezone(ub) >= today_window else today_window - timedelta(days=1)
+            return fetched_at.astimezone(ub) >= required_window
+        seconds = 3600 if policy == "hourly" else 300
+        return now - fetched_at <= timedelta(seconds=seconds)
+
+    def next_refresh_at(self, fetched_at: datetime | None = None) -> datetime:
+        fetched_at = fetched_at or datetime.now(timezone.utc)
+        if self._policy() == "daily":
+            ub = timezone(timedelta(hours=8))
+            local = fetched_at.astimezone(ub)
+            due = local.replace(hour=DAILY_REFRESH_HOUR_UB, minute=0, second=0, microsecond=0)
+            if local >= due:
+                due += timedelta(days=1)
+            return due.astimezone(timezone.utc)
+        return fetched_at + timedelta(seconds=3600 if self._policy() == "hourly" else 300)
+
+    def _cacheable(self, data: dict[str, Any], symbol: str) -> bool:
+        return any(data.get(field) is not None for field in self.formula_fields(symbol))
+
+    def get_rate(self, symbol: str) -> dict[str, Any]:
+        """Serve a fresh shared snapshot, refreshing only when it is due."""
         try:
-            cached = get_cached_rate(self.NAME, symbol)
-            if cached is not None:
-                log.debug("Cache hit  %s/%s", self.NAME, symbol)
-                return cached
+            cached = get_cached_rate_entry(self.NAME, symbol, include_stale=True)
+            if cached and self.is_fresh(cached[1]):
+                return cached[0]
         except Exception as exc:
             log.warning("Cache read error %s/%s: %s", self.NAME, symbol, exc)
+            cached = None
+        return self.refresh_rate(symbol, stale=cached)
 
-        log.info("Fetching   %s/%s", self.NAME, symbol)
-        data = self.fetch(symbol)
-
-        try:
-            set_cached_rate(self.NAME, symbol, data)
-        except Exception as exc:
-            log.warning("Cache write error %s/%s: %s", self.NAME, symbol, exc)
-
-        return data
-
-    def _get_daily_rate(self, symbol: str) -> dict[str, Any]:
-        """Return today's durable snapshot, fetching it only when absent."""
-        try:
-            cached = get_daily_cached_rate(
-                self.NAME,
-                symbol,
-                utc_offset_hours=self.CACHE_UTC_OFFSET_HOURS,
-            )
-            if cached is not None:
-                log.debug("Daily cache hit  %s/%s", self.NAME, symbol)
-                return cached
-        except Exception as exc:
-            log.warning("Daily cache read error %s/%s: %s", self.NAME, symbol, exc)
-
-        # /api/rates and /api/calculated load concurrently and may depend on
-        # the same pair. Recheck after locking so only one upstream call wins.
-        with _daily_lock(self.NAME, symbol):
+    def refresh_rate(
+        self, symbol: str, *, force: bool = False,
+        stale: tuple[dict[str, Any], datetime] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch once under a DB lease; retain a good stale snapshot on error."""
+        if stale is None:
             try:
-                cached = get_daily_cached_rate(
-                    self.NAME,
-                    symbol,
-                    utc_offset_hours=self.CACHE_UTC_OFFSET_HOURS,
-                )
-                if cached is not None:
-                    return cached
-            except Exception as exc:
-                log.warning(
-                    "Daily cache recheck error %s/%s: %s",
-                    self.NAME,
-                    symbol,
-                    exc,
-                )
-
-            log.info("Daily fetch   %s/%s", self.NAME, symbol)
+                stale = get_cached_rate_entry(self.NAME, symbol, include_stale=True)
+            except Exception:
+                stale = None
+        try:
+            claimed = try_acquire_rate_refresh_lease(self.NAME, symbol)
+        except Exception as exc:
+            # Allows deploys before the SQL migration; in-process lock still
+            # prevents duplicate work inside a single bot/API container.
+            log.warning("Refresh lease unavailable %s/%s: %s", self.NAME, symbol, exc)
+            claimed = _daily_lock(self.NAME, symbol).acquire(blocking=False)
+            local_lock = True
+        else:
+            local_lock = False
+        if not claimed:
+            return stale[0] if stale else {"lines": [f"{self.NAME} {symbol}: refresh in progress"]}
+        try:
             data = self.fetch(symbol)
-            # A temporary upstream error must not become the result for the
-            # rest of the day. Successful provider payloads expose at least
-            # one of the numeric fields declared for formulas.
-            fields = self.formula_fields(symbol)
-            cacheable = any(data.get(field) is not None for field in fields)
-            if cacheable:
-                try:
-                    set_cached_rate(self.NAME, symbol, data)
-                except Exception as exc:
-                    log.warning(
-                        "Daily cache write error %s/%s: %s",
-                        self.NAME,
-                        symbol,
-                        exc,
-                    )
-            return data
+            if self._cacheable(data, symbol):
+                set_cached_rate(self.NAME, symbol, data, next_refresh_at=self.next_refresh_at())
+                return data
+            return stale[0] if stale and self._cacheable(stale[0], symbol) else data
+        finally:
+            try:
+                if local_lock:
+                    _daily_lock(self.NAME, symbol).release()
+                else:
+                    release_rate_refresh_lease(self.NAME, symbol)
+            except Exception as exc:
+                log.warning("Refresh lease release failed %s/%s: %s", self.NAME, symbol, exc)
+
+    def fetch_many(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """Optional batch contract; shared-feed providers override this."""
+        return {symbol: self.fetch(symbol) for symbol in symbols}
 
     @abstractmethod
     def fetch(self, symbol: str) -> dict[str, Any]:

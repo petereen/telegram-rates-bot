@@ -40,6 +40,7 @@ XE_CONVERT_URL = "https://www.xe.com/currencyconverter/convert/"
 @register_provider
 class XEProvider(BaseProvider):
     NAME = "XE"
+    REFRESH_POLICY = "hourly"
     PAIRS = {
         "USD/RUB": "US Dollar → Ruble",
         "EUR/RUB": "Euro → Ruble",

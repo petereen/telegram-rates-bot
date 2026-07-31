@@ -71,6 +71,10 @@ built React application. Attach an HTTPS domain to the `web` service on port
    SUPABASE_KEY=...
    SUPABASE_STORAGE_KEY=...
    CACHE_TTL=300
+   # Refresh worker defaults: live=5m, hourly sources=1h, daily sources=09:00 UB
+   REFRESH_WORKER_INTERVAL_SECONDS=60
+   REFRESH_WORKER_CONCURRENCY=4
+   DAILY_REFRESH_HOUR_UB=9
    APP_BASE_URL=https://rates.example.com
    SESSION_SECRET=replace-with-a-long-random-value
    SESSION_COOKIE_SECURE=true

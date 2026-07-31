@@ -877,7 +877,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
             # Formula rate update
             try:
                 item = _formula_item_for_rate_id(
-                    await _build_formula_items(force=True), rate_id
+                    await _build_formula_items(force=False), rate_id
                 )
                 text = (
                     item[1] + ts_line
@@ -900,12 +900,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
             line_idx = int(parts[2]) if len(parts) > 2 else 0
             try:
                 prov = get_provider(prov_name)
-                data_result = await asyncio.to_thread(prov.fetch, sym)
-                # Update the cache with fresh data
-                try:
-                    set_cached_rate(prov_name, sym, data_result)
-                except Exception:
-                    pass
+                data_result = await asyncio.to_thread(prov.get_rate, sym)
                 emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
                 header = (
                     f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"

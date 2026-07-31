@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from db.supabase_client import _mem_cache, get_daily_cached_rate
 from providers.base import BaseProvider
@@ -36,33 +36,38 @@ class ProviderCacheTests(unittest.TestCase):
         cached = {"rate": 3490, "lines": []}
 
         with patch(
-            "providers.base.get_daily_cached_rate", return_value=cached
+            "providers.base.get_cached_rate_entry",
+            return_value=(cached, datetime.now(timezone.utc)),
         ) as get_cached:
             self.assertEqual(provider.get_rate("USD/MNT"), cached)
 
         self.assertEqual(provider.fetch_count, 0)
-        get_cached.assert_called_once_with(
-            "DailyTest", "USD/MNT", utc_offset_hours=8
-        )
+        get_cached.assert_called_once_with("DailyTest", "USD/MNT", include_stale=True)
 
     def test_daily_provider_fetches_and_persists_successful_rate(self):
         provider = DailyProvider()
 
         with patch(
-            "providers.base.get_daily_cached_rate", return_value=None
+            "providers.base.get_cached_rate_entry", return_value=None
+        ), patch("providers.base.try_acquire_rate_refresh_lease", return_value=True), patch(
+            "providers.base.release_rate_refresh_lease"
         ), patch("providers.base.set_cached_rate") as set_cached:
             result = provider.get_rate("USD/MNT")
 
         self.assertEqual(result["rate"], 3500)
         self.assertEqual(provider.fetch_count, 1)
-        set_cached.assert_called_once_with("DailyTest", "USD/MNT", result)
+        set_cached.assert_called_once_with(
+            "DailyTest", "USD/MNT", result, next_refresh_at=ANY
+        )
 
     def test_daily_provider_does_not_cache_an_upstream_error(self):
         error = {"lines": ["DailyTest USD/MNT: fetch error"]}
         provider = DailyProvider(error)
 
         with patch(
-            "providers.base.get_daily_cached_rate", return_value=None
+            "providers.base.get_cached_rate_entry", return_value=None
+        ), patch("providers.base.try_acquire_rate_refresh_lease", return_value=True), patch(
+            "providers.base.release_rate_refresh_lease"
         ), patch("providers.base.set_cached_rate") as set_cached:
             self.assertEqual(provider.get_rate("USD/MNT"), error)
 
@@ -73,7 +78,10 @@ class ProviderCacheTests(unittest.TestCase):
         provider.CACHE_DAILY = False
         cached = {"rate": 3480, "lines": []}
 
-        with patch("providers.base.get_cached_rate", return_value=cached):
+        with patch(
+            "providers.base.get_cached_rate_entry",
+            return_value=(cached, datetime.now(timezone.utc)),
+        ):
             self.assertEqual(provider.get_rate("USD/MNT"), cached)
 
         self.assertEqual(provider.fetch_count, 0)
