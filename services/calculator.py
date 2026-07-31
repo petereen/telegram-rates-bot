@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, DivisionByZero, InvalidOperation, ROUND_HALF_UP
+import re
 from typing import Any
 
 OPERATORS = {"+", "-", "*", "/"}
@@ -16,7 +17,17 @@ def _decimal(value: Any) -> Decimal:
     if isinstance(value, bool):
         raise CalculationError("Boolean values are not valid numbers")
     try:
-        return Decimal(str(value).replace(",", "."))
+        text = str(value).strip()
+        # Accept both decimal commas and conventional thousands separators.
+        # A comma next to a decimal point (or in repeated 3-digit groups) is a
+        # thousands separator; a single other comma is treated as a decimal.
+        if "." in text:
+            text = text.replace(",", "")
+        elif re.fullmatch(r"[+-]?\d{1,3}(?:,\d{3})+", text):
+            text = text.replace(",", "")
+        else:
+            text = text.replace(",", ".")
+        return Decimal(text)
     except (InvalidOperation, ValueError) as exc:
         raise CalculationError("Invalid number") from exc
 
@@ -64,6 +75,56 @@ def format_hundredths(value: Decimal | str) -> str:
     """Round half-up and retain exactly two fractional digits."""
     number = value if isinstance(value, Decimal) else _decimal(value)
     return format(number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f")
+
+
+def format_grouped_hundredths(value: Decimal | str) -> str:
+    """Round half-up and format a number with thousands separators."""
+    number = value if isinstance(value, Decimal) else _decimal(value)
+    return format(number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ",.2f")
+
+
+_NUMERIC_EXPRESSION_TOKEN = re.compile(
+    r"\s*(?:(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?|[+-]\d+(?:[.,]\d+)?%)|([+*/-]))"
+)
+
+
+def parse_numeric_expression(text: str) -> list[str]:
+    """Parse a plain arithmetic expression without accepting other text."""
+    source = text.strip()
+    if not source:
+        raise CalculationError("Илэрхийлэл хоосон байна")
+
+    tokens: list[str] = []
+    position = 0
+    while position < len(source):
+        match = _NUMERIC_EXPRESSION_TOKEN.match(source, position)
+        if match is None:
+            raise CalculationError("Илэрхийлэл буруу байна")
+        tokens.append(match.group(1) or match.group(2))
+        position = match.end()
+    return tokens
+
+
+def render_normal_calculation(raw_tokens: list[Any]) -> str:
+    """Render a plain calculator expression as a numbered ledger in HTML."""
+    calculation = evaluate_tokens(raw_tokens)
+    lines: list[str] = []
+    operator = "+"
+    item_number = 0
+    for token in raw_tokens:
+        if isinstance(token, str) and token in OPERATORS:
+            operator = {"*": "×", "/": "÷"}.get(token, token)
+            continue
+        item_number += 1
+        if isinstance(token, str) and token.endswith("%"):
+            value = token
+        else:
+            value = format_grouped_hundredths(_decimal(token))
+        lines.append(f"{operator} {value}  №{item_number}")
+
+    return "<pre>" + "\n".join(
+        [*lines, "---------------", f"+ {format_grouped_hundredths(calculation['result'])}"]
+    ) + "</pre>"
 
 
 def evaluate_tokens(raw_tokens: list[Any]) -> dict[str, str]:

@@ -46,7 +46,13 @@ from db.supabase_client import (
 )
 from providers.base import get_provider, all_providers
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
-from services.calculator import evaluate_tokens, format_hundredths
+from services.calculator import (
+    CalculationError,
+    evaluate_tokens,
+    format_hundredths,
+    parse_numeric_expression,
+    render_normal_calculation,
+)
 from services.group_calculator import (
     ShortlistCalculationError,
     calculate_shortlist_expression,
@@ -432,7 +438,10 @@ def _tokenize_input(text: str) -> list:
     of operations.
     """
     tokens: list = []
-    pattern = r"([+-]\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?|[+\-*/=])"
+    pattern = (
+        r"([+-]\d+(?:[.,]\d+)?%|\d+(?:[.,]\d+)?%|"
+        r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?|[+\-*/=])"
+    )
     for match in re.finditer(pattern, text):
         tok = match.group(1)
         if tok.endswith("%"):
@@ -442,7 +451,12 @@ def _tokenize_input(text: str) -> list:
         elif tok in "+-*/=":
             tokens.append(tok)
         else:
-            tokens.append(float(tok.replace(",", ".")))
+            normalized = (
+                tok.replace(",", "")
+                if "." in tok or re.fullmatch(r"\d{1,3}(?:,\d{3})+", tok)
+                else tok.replace(",", ".")
+            )
+            tokens.append(float(normalized))
     return tokens
 
 
@@ -708,17 +722,17 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                 user_data["calc_active"] = False
                 return
 
-            result_str = _format_number(result)
             if len(tokens) > 1:
-                formula = _format_expression(tokens)
-                display = f"{formula} = <code>{result_str}</code>"
+                display = render_normal_calculation(tokens)
             elif step_display:
+                result_str = _format_number(result)
                 display = f"{step_display}\n\nХариу: <code>{result_str}</code>"
             else:
+                result_str = _format_number(result)
                 display = f"Хариу: <code>{result_str}</code>"
 
             await update.message.reply_text(
-                f"📐 <b>Тооцоолол</b>\n\n{display}",
+                display,
                 parse_mode=ParseMode.HTML,
                 reply_markup=share_menu_keyboard(display),
             )
@@ -1199,6 +1213,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         re.fullmatch(r"[^:\s]+:[^:\s]+:\d+", rate_id)
     )
     calculator_result = None
+    normal_calculation = None
     suggestion_results: list[InlineQueryResultArticle] = []
     try:
         if rate_id.startswith("_b:"):
@@ -1257,14 +1272,21 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         else:
             if not await asyncio.to_thread(is_whitelisted, iq.from_user.id):
                 raise ShortlistCalculationError("Танд энэ ботыг ашиглах эрх байхгүй байна")
-            calculator_result = await calculate_shortlist_expression(
-                iq.from_user.id, rate_id
-            )
-            html_text = _shortlist_calculation_html(
-                calculator_result.expression,
-                calculator_result.resolved_expression,
-                calculator_result.result,
-            )
+            try:
+                # Inline mode also acts as a normal calculator when the query
+                # consists only of numbers and arithmetic operators.
+                normal_tokens = parse_numeric_expression(rate_id)
+                normal_calculation = evaluate_tokens(normal_tokens)
+                html_text = render_normal_calculation(normal_tokens)
+            except CalculationError:
+                calculator_result = await calculate_shortlist_expression(
+                    iq.from_user.id, rate_id
+                )
+                html_text = _shortlist_calculation_html(
+                    calculator_result.expression,
+                    calculator_result.resolved_expression,
+                    calculator_result.result,
+                )
     except Exception as exc:
         log.error("Inline query error for %s: %s", rate_id, exc)
         error = (
@@ -1290,6 +1312,8 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
     title = (
         f"= {calculator_result.result}"
         if calculator_result is not None
+        else f"= {format_hundredths(normal_calculation['result'])}"
+        if normal_calculation is not None
         else plain_lines[0][:80]
     )
     description = (
