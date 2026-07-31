@@ -57,7 +57,6 @@ from db.supabase_client import (
     remove_subscription_by_id,
     soft_delete_formula_definition,
     update_formula_definition,
-    set_cached_rate,
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
@@ -86,6 +85,9 @@ register_all_providers()
 
 app = FastAPI(title="Oyuns Rates", version="1.0.0")
 bot = Bot(TELEGRAM_BOT_TOKEN)
+AGENT_ALL_RATES_TIMEOUT_SECONDS = 15
+AGENT_ALL_RATES_CONCURRENCY = 8
+WEB_RATES_TIMEOUT_SECONDS = 20
 
 
 class MiniAppLogin(BaseModel):
@@ -150,6 +152,24 @@ def _verify_agent_key(authorization: str) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def _rate_error_snapshot(
+    provider: str,
+    symbol: str,
+    *,
+    error: str = "Rate unavailable",
+) -> RateSnapshot:
+    return RateSnapshot(
+        key=f"rate:{provider}:{symbol}",
+        kind="subscription",
+        source=provider,
+        pair=symbol,
+        values=[],
+        fetched_at=datetime.now(timezone.utc).isoformat(),
+        status="error",
+        error=error,
+    )
+
+
 @app.post("/api/agent/rate")
 async def agent_rate(
     payload: AgentRateRequest,
@@ -190,34 +210,78 @@ async def agent_rates(
         for name, provider in sorted(providers.items())
         for symbol in provider.PAIRS
     ]
-    rate_results, formula_snapshots = await asyncio.gather(
-        asyncio.gather(
-            *(
-                asyncio.to_thread(get_rate_snapshot, provider, symbol, force_refresh)
-                for provider, symbol in pairs
+    if mongolbank is not None and not hasattr(mongolbank, "fetch_all"):
+        pairs.extend(("MongolBank", symbol) for symbol in mongolbank.PAIRS)
+    semaphore = asyncio.Semaphore(AGENT_ALL_RATES_CONCURRENCY)
+
+    async def fetch_pair(provider: str, symbol: str) -> RateSnapshot:
+        async with semaphore:
+            return await asyncio.to_thread(
+                get_rate_snapshot, provider, symbol, force_refresh
             )
-        ),
-        get_formula_snapshots(force=force_refresh),
+
+    async def fetch_mongolbank() -> dict[str, dict[str, Any]]:
+        if mongolbank is None or not hasattr(mongolbank, "fetch_all"):
+            return {}
+        async with semaphore:
+            return await asyncio.to_thread(mongolbank.fetch_all)
+
+    formula_task = asyncio.create_task(get_formula_snapshots(force=force_refresh))
+    mongolbank_task = asyncio.create_task(fetch_mongolbank())
+    tasks: dict[asyncio.Task[Any], tuple[str, str] | str] = {
+        formula_task: "formulas",
+        mongolbank_task: "MongolBank",
+    }
+    tasks.update(
+        {
+            asyncio.create_task(fetch_pair(provider, symbol)): (provider, symbol)
+            for provider, symbol in pairs
+        }
     )
-    snapshots = list(rate_results)
 
-    if mongolbank is not None and hasattr(mongolbank, "fetch_all"):
-        all_mongolbank_rates = await asyncio.to_thread(mongolbank.fetch_all)
-        for symbol, data in all_mongolbank_rates.items():
-            if data.get("rate") is not None:
-                await asyncio.to_thread(set_cached_rate, "MongolBank", symbol, data)
-            snapshots.append(snapshot_from_provider_data("MongolBank", symbol, data))
-    elif mongolbank is not None:
-        snapshots.extend(
-            await asyncio.gather(
-                *(
-                    asyncio.to_thread(get_rate_snapshot, "MongolBank", symbol, force_refresh)
-                    for symbol in mongolbank.PAIRS
-                )
+    done, pending = await asyncio.wait(
+        tasks,
+        timeout=AGENT_ALL_RATES_TIMEOUT_SECONDS,
+    )
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    snapshots: list[RateSnapshot] = []
+    formula_snapshots: list[RateSnapshot] = []
+    warnings: list[str] = []
+    for task in done:
+        target = tasks[task]
+        try:
+            result = task.result()
+        except Exception as exc:
+            log.warning("Agent all-rates fetch failed for %s: %s", target, exc)
+            warnings.append(f"{target}: unavailable")
+            if isinstance(target, tuple):
+                snapshots.append(_rate_error_snapshot(*target))
+            continue
+        if target == "formulas":
+            formula_snapshots = result
+        elif target == "MongolBank":
+            snapshots.extend(
+                snapshot_from_provider_data("MongolBank", symbol, data)
+                for symbol, data in result.items()
             )
-        )
+        else:
+            snapshots.append(result)
 
-    return {"rates": [snapshot.to_dict() for snapshot in snapshots + formula_snapshots]}
+    for task in pending:
+        target = tasks[task]
+        warnings.append(f"{target}: timed out")
+        if isinstance(target, tuple):
+            snapshots.append(_rate_error_snapshot(*target, error="Fetch timed out"))
+
+    return {
+        "rates": [snapshot.to_dict() for snapshot in snapshots + formula_snapshots],
+        "partial": bool(warnings),
+        "warnings": warnings,
+    }
 
 
 @app.post("/api/auth/mini-app")
@@ -342,27 +406,26 @@ async def clear_all(user: AuthUser = Depends(current_user)) -> dict[str, int]:
 
 async def _subscription_snapshots(user: AuthUser, force: bool = False) -> list[RateSnapshot]:
     rows = await asyncio.to_thread(get_subscriptions, user.telegram_id)
-    results = await asyncio.gather(
-        *[
+
+    async def fetch(row: dict[str, Any]) -> RateSnapshot:
+        return await asyncio.wait_for(
             asyncio.to_thread(
                 get_rate_snapshot, row["provider"], row["symbol"], force
-            )
-            for row in rows
-        ],
+            ),
+            timeout=WEB_RATES_TIMEOUT_SECONDS,
+        )
+
+    results = await asyncio.gather(
+        *(fetch(row) for row in rows),
         return_exceptions=True,
     )
     snapshots: list[RateSnapshot] = []
     for row, result in zip(rows, results):
         if isinstance(result, Exception):
             snapshots.append(
-                RateSnapshot(
-                    key=f"rate:{row['provider']}:{row['symbol']}",
-                    kind="subscription",
-                    source=row["provider"],
-                    pair=row["symbol"],
-                    values=[],
-                    fetched_at=datetime.now(timezone.utc).isoformat(),
-                    status="error",
+                _rate_error_snapshot(
+                    row["provider"],
+                    row["symbol"],
                     error="Ханш авахад алдаа гарлаа",
                 )
             )

@@ -125,6 +125,24 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["rates"][0]["kind"], "calculated")
         self.assertEqual(response.json()["rates"][0]["pair"], "ДЕЛЬКРАДО")
 
+    def test_agent_rates_returns_partial_response_when_provider_fails(self) -> None:
+        provider = type("Provider", (), {"PAIRS": {"USD/ERR": "Broken"}})()
+        with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"), patch(
+            "api.app.all_providers", return_value={"Broken": provider}
+        ), patch(
+            "api.app.get_rate_snapshot", side_effect=RuntimeError("upstream failed")
+        ), patch(
+            "api.app.get_formula_snapshots", new_callable=AsyncMock, return_value=[]
+        ):
+            response = self.client.get(
+                "/api/agent/rates",
+                headers={"Authorization": "Bearer agent-secret"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["partial"])
+        self.assertEqual(response.json()["rates"][0]["status"], "error")
+
     def test_calculator_endpoint(self) -> None:
         response = self.client.post(
             "/api/calculate", json={"tokens": ["100", "/", "4", "+", "5"]}

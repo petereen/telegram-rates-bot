@@ -98,6 +98,12 @@ An agent integration must not maintain an enum of MongolBank currency pairs.
 It should read the returned snapshots, then use `POST /api/agent/rate` with a
 requested `XXX/MNT` pair only when it needs an individual refresh.
 
+The all-rates response is deadline-bounded and may include `partial: true` and
+provider-specific `warnings`. Agents must still consume entries whose `status`
+is `fresh` or `stale`; one unavailable provider must not be presented as a
+total exchange-rate service outage. For a specific user request, prefer
+`POST /api/agent/rate` instead of loading the full catalog.
+
 Pair-menu callback formats are part of the protocol:
 
 ```text

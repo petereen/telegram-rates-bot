@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from services.rates import (
     get_formula_snapshots,
+    get_rate_snapshot,
     render_share_html,
     snapshot_from_provider_data,
 )
@@ -22,6 +23,21 @@ class RateSnapshotTests(unittest.TestCase):
         )
         self.assertEqual(snapshot.status, "error")
         self.assertFalse(snapshot.values)
+
+    def test_cache_failure_does_not_hide_fetched_rate(self) -> None:
+        provider = type(
+            "Provider",
+            (),
+            {"get_rate": lambda self, symbol: {"rate": 42.5, "lines": []}},
+        )()
+        with patch("services.rates.get_provider", return_value=provider), patch(
+            "services.rates.get_cached_rate_entry",
+            side_effect=RuntimeError("cache unavailable"),
+        ):
+            snapshot = get_rate_snapshot("MongolBank", "RUB/MNT")
+
+        self.assertEqual(snapshot.status, "fresh")
+        self.assertEqual(snapshot.values[0].amount, "42.5")
 
     def test_share_escapes_provider_content(self) -> None:
         snapshot = snapshot_from_provider_data(

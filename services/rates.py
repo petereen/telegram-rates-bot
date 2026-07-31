@@ -20,6 +20,8 @@ from providers.base import all_providers, get_provider
 
 log = logging.getLogger(__name__)
 UB_TZ = timezone(timedelta(hours=8))
+FORMULA_PROVIDER_TIMEOUT_SECONDS = 15
+FORMULA_CACHE_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -121,12 +123,36 @@ def get_rate_snapshot(provider: str, symbol: str, force: bool = False) -> RateSn
     """Get a structured rate, preserving stale data when a forced refresh fails."""
     rate_provider = get_provider(provider)
     if not force:
-        data = rate_provider.get_rate(symbol)
-        cached = get_cached_rate_entry(provider, symbol, include_stale=True)
+        try:
+            data = rate_provider.get_rate(symbol)
+        except Exception as exc:
+            log.warning("Provider fetch failed for %s/%s: %s", provider, symbol, exc)
+            data = None
+        try:
+            cached = get_cached_rate_entry(provider, symbol, include_stale=True)
+        except Exception as exc:
+            log.warning("Snapshot cache read failed for %s/%s: %s", provider, symbol, exc)
+            cached = None
+        if data is None:
+            if cached and _is_success(cached[0]):
+                snapshot = snapshot_from_provider_data(
+                    provider,
+                    symbol,
+                    cached[0],
+                    fetched_at=cached[1],
+                    status="stale",
+                )
+                snapshot.error = "Шинэ ханш авахад алдаа гарлаа"
+                return snapshot
+            data = {"lines": [f"{provider} {symbol}: fetch error"]}
         fetched_at = cached[1] if cached else datetime.now(timezone.utc)
         return snapshot_from_provider_data(provider, symbol, data, fetched_at=fetched_at)
 
-    stale = get_cached_rate_entry(provider, symbol, include_stale=True)
+    try:
+        stale = get_cached_rate_entry(provider, symbol, include_stale=True)
+    except Exception as exc:
+        log.warning("Stale cache read failed for %s/%s: %s", provider, symbol, exc)
+        stale = None
     try:
         data = rate_provider.fetch(symbol)
     except Exception as exc:
@@ -134,7 +160,10 @@ def get_rate_snapshot(provider: str, symbol: str, force: bool = False) -> RateSn
         data = {"lines": [f"{provider} {symbol}: fetch error"]}
 
     if _is_success(data):
-        set_cached_rate(provider, symbol, data)
+        try:
+            set_cached_rate(provider, symbol, data)
+        except Exception as exc:
+            log.warning("Snapshot cache write failed for %s/%s: %s", provider, symbol, exc)
         return snapshot_from_provider_data(provider, symbol, data)
     if stale and _is_success(stale[0]):
         snapshot = snapshot_from_provider_data(
@@ -304,14 +333,40 @@ async def get_formula_snapshots(
 
     async def fetch(provider: str, symbol: str) -> tuple[dict[str, Any], str]:
         instance = get_provider(provider)
-        data = await asyncio.to_thread(
-            instance.fetch if force else instance.get_rate, symbol
+        data = await asyncio.wait_for(
+            asyncio.to_thread(
+                instance.fetch if force else instance.get_rate, symbol
+            ),
+            timeout=FORMULA_PROVIDER_TIMEOUT_SECONDS,
         )
         if force and _is_success(data):
-            await asyncio.to_thread(set_cached_rate, provider, symbol, data)
-        cached = await asyncio.to_thread(
-            get_cached_rate_entry, provider, symbol, include_stale=True
-        )
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(set_cached_rate, provider, symbol, data),
+                    timeout=FORMULA_CACHE_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                log.warning(
+                    "Formula cache write failed for %s/%s: %s",
+                    provider,
+                    symbol,
+                    exc,
+                )
+        try:
+            cached = await asyncio.wait_for(
+                asyncio.to_thread(
+                    get_cached_rate_entry, provider, symbol, include_stale=True
+                ),
+                timeout=FORMULA_CACHE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            log.warning(
+                "Formula cache read failed for %s/%s: %s",
+                provider,
+                symbol,
+                exc,
+            )
+            cached = None
         fetched_at = cached[1] if cached else datetime.now(timezone.utc)
         return data, fetched_at.isoformat()
 
