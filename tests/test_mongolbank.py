@@ -2,7 +2,12 @@ import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from providers.mongolbank import _API_URL, _UB_TZ, _fetch_official_rates
+from providers.mongolbank import (
+    _API_URL,
+    _UB_TZ,
+    MongolBankProvider,
+    _fetch_official_rates,
+)
 
 
 class MongolBankTests(unittest.TestCase):
@@ -26,6 +31,14 @@ class MongolBankTests(unittest.TestCase):
             },
             timeout=(5, 10),
         )
+
+    @patch("providers.mongolbank._fetch_rates", return_value={"USD": 3462.15})
+    def test_usd_mnt_is_supported(self, fetch_rates: Mock) -> None:
+        data = MongolBankProvider().fetch("USD/MNT")
+
+        self.assertEqual(data["rate"], 3462.15)
+        self.assertIn("USD/MNT", data["lines"][0])
+        fetch_rates.assert_called_once_with()
 
 
 if __name__ == "__main__":

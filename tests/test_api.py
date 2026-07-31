@@ -64,6 +64,28 @@ class ApiTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 404)
 
+    def test_agent_rates_returns_every_provider_pair(self) -> None:
+        snapshot = RateSnapshot(
+            key="rate:MongolBank:USD/MNT",
+            kind="subscription",
+            source="MongolBank",
+            pair="USD/MNT",
+            values=[RateValue("value", "3462.15")],
+            fetched_at="2026-07-31T00:00:00+00:00",
+        )
+        provider = type("Provider", (), {"PAIRS": {"USD/MNT": "US Dollar ↔ Tögrög"}})()
+        with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"), patch(
+            "api.app.all_providers", return_value={"MongolBank": provider}
+        ), patch("api.app.get_rate_snapshot", return_value=snapshot) as get_snapshot:
+            response = self.client.get(
+                "/api/agent/rates",
+                headers={"Authorization": "Bearer agent-secret"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rates"][0]["pair"], "USD/MNT")
+        get_snapshot.assert_called_once_with("MongolBank", "USD/MNT", False)
+
     def test_calculator_endpoint(self) -> None:
         response = self.client.post(
             "/api/calculate", json={"tokens": ["100", "/", "4", "+", "5"]}

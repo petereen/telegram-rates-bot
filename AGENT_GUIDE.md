@@ -77,6 +77,16 @@ Supabase tables:
 - `/rates` and `/oyuns`: retrieve and display every watched rate.
 - `/calc`: displays the three derived rates described below.
 
+The server-to-server agent API can fetch one pair with `POST /api/agent/rate`.
+To fetch every pair exposed by every registered provider, use
+`GET /api/agent/rates` with `Authorization: Bearer $AGENT_RATES_API_KEY`.
+Append `?force_refresh=true` to bypass provider caches. For example:
+
+```bash
+curl -H "Authorization: Bearer $AGENT_RATES_API_KEY" \
+  "$APP_BASE_URL/api/agent/rates"
+```
+
 Pair-menu callback formats are part of the protocol:
 
 ```text

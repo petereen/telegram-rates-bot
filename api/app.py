@@ -173,6 +173,28 @@ async def agent_rate(
     return snapshot.to_dict()
 
 
+@app.get("/api/agent/rates")
+async def agent_rates(
+    force_refresh: bool = Query(default=False),
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """Return one snapshot for every registered provider/currency pair."""
+    _verify_agent_key(authorization)
+
+    pairs = [
+        (name, symbol)
+        for name, provider in sorted(all_providers().items())
+        for symbol in provider.PAIRS
+    ]
+    snapshots = await asyncio.gather(
+        *(
+            asyncio.to_thread(get_rate_snapshot, provider, symbol, force_refresh)
+            for provider, symbol in pairs
+        )
+    )
+    return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
+
+
 @app.post("/api/auth/mini-app")
 async def mini_app_login(payload: MiniAppLogin, response: Response) -> dict[str, Any]:
     await asyncio.to_thread(validate_api_key, payload.api_key)

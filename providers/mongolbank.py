@@ -26,9 +26,13 @@ _FALLBACK_API_URL = "https://monxansh.appspot.com/xansh.json"
 # Ulaanbaatar timezone (UTC+8)
 _UB_TZ = timezone(timedelta(hours=8))
 
-_ALL_PAIRS: dict[str, str] = {"RUB/MNT": "Рубль ↔ Tögrög"}
+_ALL_PAIRS: dict[str, str] = {
+    "USD/MNT": "US Dollar ↔ Tögrög",
+    "RUB/MNT": "Рубль ↔ Tögrög",
+}
 
 _PAIR_TO_CODE: dict[str, str] = {
+    "USD/MNT": "USD",
     "RUB/MNT": "RUB",
 }
 
@@ -104,16 +108,21 @@ def _fetch_official_rates() -> dict[str, float]:
 
 def _fetch_fallback_rates() -> dict[str, float]:
     """Fetch the official-rate proxy when MongolBank's site is unavailable."""
-    response = requests.get(_FALLBACK_API_URL, params={"currency": "RUB"}, timeout=10)
-    response.raise_for_status()
-    payload = response.json()
-    if not isinstance(payload, list):
-        return {}
-    for row in payload:
-        if isinstance(row, dict) and row.get("code") == "RUB":
+    rates: dict[str, float] = {}
+    for code in ("USD", "RUB"):
+        response = requests.get(_FALLBACK_API_URL, params={"currency": code}, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            continue
+        for row in payload:
+            if not isinstance(row, dict) or row.get("code") != code:
+                continue
             rate = _parse_rate(row.get("rate_float"))
-            return {"RUB": rate} if rate is not None else {}
-    return {}
+            if rate is not None:
+                rates[code] = rate
+            break
+    return rates
 
 
 def _fetch_rates() -> dict[str, float]:
@@ -159,13 +168,24 @@ def fetch_mongolbank_rub_rate() -> dict[str, Any]:
     return {"error": "RUB rate not found"}
 
 
+def fetch_mongolbank_usd_rate() -> dict[str, Any]:
+    """Fetch the MongolBank USD rate (MNT per 1 USD) using the provider cache."""
+    data = MongolBankProvider().get_rate("USD/MNT")
+    if "rate" in data:
+        return {"rate": data["rate"]}
+    return {"error": "USD rate not found"}
+
+
 def run_daily_refresh() -> None:
     """Pre-warm the daily Supabase snapshot at startup and every 09:05 UB time."""
     provider = MongolBankProvider()
     while True:
         try:
-            data = provider.get_rate("RUB/MNT")
-            if "rate" in data:
+            results = {
+                symbol: provider.get_rate(symbol)
+                for symbol in provider.PAIRS
+            }
+            if all("rate" in data for data in results.values()):
                 log.info("MongolBank daily snapshot is ready")
             else:
                 log.warning("MongolBank daily snapshot could not be refreshed")
