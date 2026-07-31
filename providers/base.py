@@ -51,6 +51,10 @@ class BaseProvider(ABC):
         """Return numeric payload fields that formulas may reference."""
         return self.FORMULA_FIELDS.get(symbol, ())
 
+    def supports_pair(self, symbol: str) -> bool:
+        """Return whether this provider can fetch a currency pair."""
+        return symbol in self.PAIRS
+
     # ── public entry point (cache-aware) ───────────────────────────────
 
     def get_rate(self, symbol: str) -> dict[str, Any]:

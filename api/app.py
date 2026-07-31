@@ -57,6 +57,7 @@ from db.supabase_client import (
     remove_subscription_by_id,
     soft_delete_formula_definition,
     update_formula_definition,
+    set_cached_rate,
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
@@ -77,6 +78,7 @@ from services.rates import (
     normalize_formula_definition,
     render_share_html,
     resolve_user_rate_keys,
+    snapshot_from_provider_data,
 )
 
 log = logging.getLogger(__name__)
@@ -161,7 +163,7 @@ async def agent_rate(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Unknown provider") from exc
 
-    if payload.pair not in provider.PAIRS:
+    if not provider.supports_pair(payload.pair):
         raise HTTPException(status_code=404, detail="Unknown currency pair")
 
     snapshot = await asyncio.to_thread(
@@ -181,18 +183,41 @@ async def agent_rates(
     """Return one snapshot for every registered provider/currency pair."""
     _verify_agent_key(authorization)
 
+    providers = all_providers()
+    mongolbank = providers.pop("MongolBank", None)
     pairs = [
         (name, symbol)
-        for name, provider in sorted(all_providers().items())
+        for name, provider in sorted(providers.items())
         for symbol in provider.PAIRS
     ]
-    snapshots = await asyncio.gather(
-        *(
-            asyncio.to_thread(get_rate_snapshot, provider, symbol, force_refresh)
-            for provider, symbol in pairs
-        )
+    rate_results, formula_snapshots = await asyncio.gather(
+        asyncio.gather(
+            *(
+                asyncio.to_thread(get_rate_snapshot, provider, symbol, force_refresh)
+                for provider, symbol in pairs
+            )
+        ),
+        get_formula_snapshots(force=force_refresh),
     )
-    return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
+    snapshots = list(rate_results)
+
+    if mongolbank is not None and hasattr(mongolbank, "fetch_all"):
+        all_mongolbank_rates = await asyncio.to_thread(mongolbank.fetch_all)
+        for symbol, data in all_mongolbank_rates.items():
+            if data.get("rate") is not None:
+                await asyncio.to_thread(set_cached_rate, "MongolBank", symbol, data)
+            snapshots.append(snapshot_from_provider_data("MongolBank", symbol, data))
+    elif mongolbank is not None:
+        snapshots.extend(
+            await asyncio.gather(
+                *(
+                    asyncio.to_thread(get_rate_snapshot, "MongolBank", symbol, force_refresh)
+                    for symbol in mongolbank.PAIRS
+                )
+            )
+        )
+
+    return {"rates": [snapshot.to_dict() for snapshot in snapshots + formula_snapshots]}
 
 
 @app.post("/api/auth/mini-app")
@@ -283,7 +308,7 @@ async def subscribe(
         provider = get_provider(payload.provider)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Эх сурвалж олдсонгүй") from exc
-    if payload.symbol not in provider.PAIRS:
+    if not provider.supports_pair(payload.symbol):
         raise HTTPException(status_code=404, detail="Валютын хослол олдсонгүй")
     await asyncio.to_thread(
         add_subscription, user.telegram_id, payload.provider, payload.symbol

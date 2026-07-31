@@ -78,14 +78,25 @@ Supabase tables:
 - `/calc`: displays the three derived rates described below.
 
 The server-to-server agent API can fetch one pair with `POST /api/agent/rate`.
-To fetch every pair exposed by every registered provider, use
+For MongolBank, it accepts every uppercase `XXX/MNT` pair and returns `not
+found` only when the official feed does not publish that currency. It is not
+limited to the pair menu or a user subscription.
+
+To fetch every pair exposed by every registered provider, every currency
+currently published by MongolBank, and all enabled formula results, use
 `GET /api/agent/rates` with `Authorization: Bearer $AGENT_RATES_API_KEY`.
-Append `?force_refresh=true` to bypass provider caches. For example:
+Append `?force_refresh=true` to bypass provider caches. The agent should match
+normal rates by `source` and `pair`, and formula rates by `kind: "calculated"`
+and their `pair` (formula title). For example:
 
 ```bash
 curl -H "Authorization: Bearer $AGENT_RATES_API_KEY" \
   "$APP_BASE_URL/api/agent/rates"
 ```
+
+An agent integration must not maintain an enum of MongolBank currency pairs.
+It should read the returned snapshots, then use `POST /api/agent/rate` with a
+requested `XXX/MNT` pair only when it needs an individual refresh.
 
 Pair-menu callback formats are part of the protocol:
 

@@ -9,6 +9,7 @@ symbols stable for existing watchlists and cached rates.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -28,13 +29,19 @@ _UB_TZ = timezone(timedelta(hours=8))
 
 _ALL_PAIRS: dict[str, str] = {
     "USD/MNT": "US Dollar ↔ Tögrög",
+    "CNY/MNT": "Chinese Yuan ↔ Tögrög",
+    "JPY/MNT": "Japanese Yen ↔ Tögrög",
     "RUB/MNT": "Рубль ↔ Tögrög",
 }
 
 _PAIR_TO_CODE: dict[str, str] = {
     "USD/MNT": "USD",
+    "CNY/MNT": "CNY",
+    "JPY/MNT": "JPY",
     "RUB/MNT": "RUB",
 }
+
+_MNT_PAIR_RE = re.compile(r"^[A-Z]{3}/MNT$")
 
 def _parse_rate(value: object) -> float | None:
     """Convert the API's numeric strings, including comma-separated values."""
@@ -109,7 +116,7 @@ def _fetch_official_rates() -> dict[str, float]:
 def _fetch_fallback_rates() -> dict[str, float]:
     """Fetch the official-rate proxy when MongolBank's site is unavailable."""
     rates: dict[str, float] = {}
-    for code in ("USD", "RUB"):
+    for code in ("USD", "CNY", "JPY", "RUB"):
         response = requests.get(_FALLBACK_API_URL, params={"currency": code}, timeout=10)
         response.raise_for_status()
         payload = response.json()
@@ -143,10 +150,36 @@ class MongolBankProvider(BaseProvider):
     PAIRS = _ALL_PAIRS
     FORMULA_FIELDS = {symbol: ("rate",) for symbol in PAIRS}
 
+    def supports_pair(self, symbol: str) -> bool:
+        """The official feed can provide every published ISO currency/MNT rate."""
+        return bool(_MNT_PAIR_RE.fullmatch(symbol))
+
+    def formula_fields(self, symbol: str) -> tuple[str, ...]:
+        return ("rate",) if self.supports_pair(symbol) else ()
+
+    @staticmethod
+    def _rate_data(symbol: str, rate: float | None) -> dict[str, Any]:
+        if rate is None:
+            return {"lines": [f"MongolBank {symbol}: not found"]}
+        return {"lines": [f"MongolBank {symbol}: `{rate:.2f}`"], "rate": rate}
+
+    def fetch_all(self) -> dict[str, dict[str, Any]]:
+        """Fetch every currency/MNT rate currently published by MongolBank."""
+        try:
+            rates = _fetch_rates()
+        except (requests.RequestException, ValueError, etree.XMLSyntaxError) as exc:
+            log.error("MongolBank all-rates fetch error: %s", exc)
+            return {}
+        return {
+            f"{code}/MNT": self._rate_data(f"{code}/MNT", rate)
+            for code, rate in rates.items()
+            if len(code) == 3 and code.isalpha() and code.upper() != "MNT"
+        }
+
     def fetch(self, symbol: str) -> dict[str, Any]:
-        code = _PAIR_TO_CODE.get(symbol)
-        if code is None:
+        if not self.supports_pair(symbol):
             return {"lines": [f"MongolBank {symbol}: unsupported"]}
+        code = symbol.split("/", 1)[0]
 
         try:
             rate = _fetch_rates().get(code)
@@ -154,10 +187,7 @@ class MongolBankProvider(BaseProvider):
             log.error("MongolBank fetch error: %s", exc)
             return {"lines": [f"MongolBank {symbol}: fetch error"]}
 
-        if rate is None:
-            return {"lines": [f"MongolBank {symbol}: not found"]}
-
-        return {"lines": [f"MongolBank {symbol}: `{rate:.2f}`"], "rate": rate}
+        return self._rate_data(symbol, rate)
 
 
 def fetch_mongolbank_rub_rate() -> dict[str, Any]:

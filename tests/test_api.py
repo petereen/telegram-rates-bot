@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -73,18 +73,57 @@ class ApiTests(unittest.TestCase):
             values=[RateValue("value", "3462.15")],
             fetched_at="2026-07-31T00:00:00+00:00",
         )
-        provider = type("Provider", (), {"PAIRS": {"USD/MNT": "US Dollar ↔ Tögrög"}})()
+        provider = type(
+            "Provider",
+            (),
+            {"PAIRS": {
+                "USD/MNT": "US Dollar ↔ Tögrög",
+                "CNY/MNT": "Chinese Yuan ↔ Tögrög",
+                "JPY/MNT": "Japanese Yen ↔ Tögrög",
+            }},
+        )()
         with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"), patch(
             "api.app.all_providers", return_value={"MongolBank": provider}
-        ), patch("api.app.get_rate_snapshot", return_value=snapshot) as get_snapshot:
+        ), patch("api.app.get_rate_snapshot", return_value=snapshot) as get_snapshot, patch(
+            "api.app.get_formula_snapshots", new_callable=AsyncMock, return_value=[]
+        ):
             response = self.client.get(
                 "/api/agent/rates",
                 headers={"Authorization": "Bearer agent-secret"},
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["rates"][0]["pair"], "USD/MNT")
-        get_snapshot.assert_called_once_with("MongolBank", "USD/MNT", False)
+        self.assertEqual(len(response.json()["rates"]), 3)
+        self.assertEqual(get_snapshot.call_count, 3)
+        get_snapshot.assert_any_call("MongolBank", "USD/MNT", False)
+        get_snapshot.assert_any_call("MongolBank", "CNY/MNT", False)
+        get_snapshot.assert_any_call("MongolBank", "JPY/MNT", False)
+
+    def test_agent_rates_includes_formula_snapshots(self) -> None:
+        formula = RateSnapshot(
+            key="formula:delcrado",
+            kind="calculated",
+            source="Тооцоолсон",
+            pair="ДЕЛЬКРАДО",
+            values=[RateValue("value", "45.19")],
+            fetched_at="2026-07-31T00:00:00+00:00",
+            formula="MongolBank RUB/MNT × 1.005",
+        )
+        with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"), patch(
+            "api.app.all_providers", return_value={}
+        ), patch(
+            "api.app.get_formula_snapshots",
+            new_callable=AsyncMock,
+            return_value=[formula],
+        ):
+            response = self.client.get(
+                "/api/agent/rates",
+                headers={"Authorization": "Bearer agent-secret"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rates"][0]["kind"], "calculated")
+        self.assertEqual(response.json()["rates"][0]["pair"], "ДЕЛЬКРАДО")
 
     def test_calculator_endpoint(self) -> None:
         response = self.client.post(

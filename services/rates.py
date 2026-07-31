@@ -220,7 +220,7 @@ def normalize_formula_definition(data: dict[str, Any]) -> dict[str, Any]:
         symbol = str(raw.get("symbol") or "")
         field_name = str(raw.get("field") or "")
         provider = providers.get(provider_name)
-        if provider is None or symbol not in provider.PAIRS:
+        if provider is None or not provider.supports_pair(symbol):
             raise ValueError("Томьёоны эх сурвалж олдсонгүй")
         if field_name not in provider.formula_fields(symbol):
             raise ValueError("Сонгосон ханшийн талбар дэмжигдэхгүй")

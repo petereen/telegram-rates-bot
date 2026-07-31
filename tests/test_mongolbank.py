@@ -32,13 +32,24 @@ class MongolBankTests(unittest.TestCase):
             timeout=(5, 10),
         )
 
-    @patch("providers.mongolbank._fetch_rates", return_value={"USD": 3462.15})
-    def test_usd_mnt_is_supported(self, fetch_rates: Mock) -> None:
-        data = MongolBankProvider().fetch("USD/MNT")
+    @patch(
+        "providers.mongolbank._fetch_rates",
+        return_value={"USD": 3462.15, "CNY": 481.2, "JPY": 23.1},
+    )
+    def test_common_mnt_pairs_are_supported(self, fetch_rates: Mock) -> None:
+        provider = MongolBankProvider()
 
-        self.assertEqual(data["rate"], 3462.15)
-        self.assertIn("USD/MNT", data["lines"][0])
-        fetch_rates.assert_called_once_with()
+        for pair, expected in (
+            ("USD/MNT", 3462.15),
+            ("CNY/MNT", 481.2),
+            ("JPY/MNT", 23.1),
+        ):
+            with self.subTest(pair=pair):
+                data = provider.fetch(pair)
+                self.assertEqual(data["rate"], expected)
+                self.assertIn(pair, data["lines"][0])
+
+        self.assertEqual(fetch_rates.call_count, 3)
 
 
 if __name__ == "__main__":
