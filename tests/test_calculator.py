@@ -49,6 +49,10 @@ class CalculatorTests(unittest.TestCase):
             "+ 10,032,778.38</pre>",
         )
 
+    def test_parentheses_work_in_long_numeric_expression(self) -> None:
+        result = evaluate_tokens(parse_numeric_expression("(1,000 + 5,000) * 2"))
+        self.assertEqual(result["result"], "12000")
+
 
 if __name__ == "__main__":
     unittest.main()

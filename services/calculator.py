@@ -64,6 +64,56 @@ def _evaluate_simple(tokens: list[Decimal | str]) -> Decimal:
     return result
 
 
+def _evaluate_parenthesized(tokens: list[Decimal | str]) -> Decimal:
+    """Evaluate tokens with normal precedence and nested parentheses."""
+    position = 0
+
+    def factor() -> Decimal:
+        nonlocal position
+        if position >= len(tokens):
+            raise CalculationError("Expression is incomplete")
+        token = tokens[position]
+        if isinstance(token, Decimal):
+            position += 1
+            return token
+        if token == "(":
+            position += 1
+            result = expression()
+            if position >= len(tokens) or tokens[position] != ")":
+                raise CalculationError("Хаалт дутуу байна")
+            position += 1
+            return result
+        raise CalculationError("Expression is invalid")
+
+    def term() -> Decimal:
+        nonlocal position
+        result = factor()
+        while position < len(tokens) and tokens[position] in ("*", "/"):
+            operator = tokens[position]
+            position += 1
+            right = factor()
+            try:
+                result = result * right if operator == "*" else result / right
+            except (DivisionByZero, ZeroDivisionError) as exc:
+                raise CalculationError("Тэгд хуваах боломжгүй") from exc
+        return result
+
+    def expression() -> Decimal:
+        nonlocal position
+        result = term()
+        while position < len(tokens) and tokens[position] in ("+", "-"):
+            operator = tokens[position]
+            position += 1
+            right = term()
+            result = result + right if operator == "+" else result - right
+        return result
+
+    result = expression()
+    if position != len(tokens):
+        raise CalculationError("Expression is invalid")
+    return result
+
+
 def format_decimal(value: Decimal) -> str:
     """Format a decimal without scientific notation or redundant zeroes."""
     if value == value.to_integral():
@@ -84,7 +134,7 @@ def format_grouped_hundredths(value: Decimal | str) -> str:
 
 
 _NUMERIC_EXPRESSION_TOKEN = re.compile(
-    r"\s*(?:(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?|[+-]\d+(?:[.,]\d+)?%)|([+*/-]))"
+    r"\s*(?:(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?|[+-]\d+(?:[.,]\d+)?%)|([+*/-])|([()]))"
 )
 
 
@@ -100,7 +150,7 @@ def parse_numeric_expression(text: str) -> list[str]:
         match = _NUMERIC_EXPRESSION_TOKEN.match(source, position)
         if match is None:
             raise CalculationError("Илэрхийлэл буруу байна")
-        tokens.append(match.group(1) or match.group(2))
+        tokens.append(match.group(1) or match.group(2) or match.group(3))
         position = match.end()
     return tokens
 
@@ -112,6 +162,8 @@ def render_normal_calculation(raw_tokens: list[Any]) -> str:
     operator = "+"
     item_number = 0
     for token in raw_tokens:
+        if token in ("(", ")"):
+            continue
         if isinstance(token, str) and token in OPERATORS:
             operator = {"*": "×", "/": "÷"}.get(token, token)
             continue
@@ -140,6 +192,10 @@ def evaluate_tokens(raw_tokens: list[Any]) -> dict[str, str]:
     display: list[str] = []
 
     for raw in raw_tokens:
+        if raw in ("(", ")"):
+            tokens.append(raw)
+            display.append(raw)
+            continue
         if isinstance(raw, str) and raw.endswith("%"):
             if not tokens or not isinstance(tokens[-1], Decimal):
                 raise CalculationError("Хувийн өмнө тоо оруулна уу")
@@ -154,19 +210,23 @@ def evaluate_tokens(raw_tokens: list[Any]) -> dict[str, str]:
             continue
 
         if isinstance(raw, str) and raw in OPERATORS:
-            if not tokens or not isinstance(tokens[-1], Decimal):
+            if not tokens or (not isinstance(tokens[-1], Decimal) and tokens[-1] != ")"):
                 raise CalculationError("Операторын өмнө тоо оруулна уу")
             tokens.append(raw)
             display.append("×" if raw == "*" else "÷" if raw == "/" else raw)
             continue
 
         number = _decimal(raw)
-        if tokens and isinstance(tokens[-1], Decimal):
+        if tokens and (isinstance(tokens[-1], Decimal) or tokens[-1] == ")"):
             raise CalculationError("Хоёр тооны хооронд оператор оруулна уу")
         tokens.append(number)
         display.append(format_decimal(number))
 
-    result = _evaluate_simple(tokens)
+    result = (
+        _evaluate_parenthesized(tokens)
+        if "(" in tokens or ")" in tokens
+        else _evaluate_simple(tokens)
+    )
     return {
         "expression": " ".join(display),
         "result": format_decimal(result),
