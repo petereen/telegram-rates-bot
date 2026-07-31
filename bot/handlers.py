@@ -50,6 +50,7 @@ from services.calculator import (
     CalculationError,
     evaluate_tokens,
     format_hundredths,
+    evaluate_running_tokens,
     parse_numeric_expression,
     render_normal_calculation,
 )
@@ -1276,7 +1277,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 # Inline mode also acts as a normal calculator when the query
                 # consists only of numbers and arithmetic operators.
                 normal_tokens = parse_numeric_expression(rate_id)
-                normal_calculation = evaluate_tokens(normal_tokens)
+                normal_calculation = evaluate_running_tokens(normal_tokens)
                 html_text = render_normal_calculation(normal_tokens)
             except CalculationError:
                 calculator_result = await calculate_shortlist_expression(

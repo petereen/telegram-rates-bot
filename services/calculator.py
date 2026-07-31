@@ -156,27 +156,52 @@ def parse_numeric_expression(text: str) -> list[str]:
 
 
 def render_normal_calculation(raw_tokens: list[Any]) -> str:
-    """Render a plain calculator expression as a numbered ledger in HTML."""
-    calculation = evaluate_tokens(raw_tokens)
-    lines: list[str] = []
-    operator = "+"
-    item_number = 0
-    for token in raw_tokens:
-        if token in ("(", ")"):
-            continue
-        if isinstance(token, str) and token in OPERATORS:
-            operator = {"*": "×", "/": "÷"}.get(token, token)
-            continue
-        item_number += 1
-        if isinstance(token, str) and token.endswith("%"):
-            value = token
-        else:
-            value = format_grouped_hundredths(_decimal(token))
-        lines.append(f"{operator} {value}  №{item_number}")
+    """Render normal calculator input as a left-to-right running ledger."""
+    calculation = evaluate_running_tokens(raw_tokens)
+    steps = calculation["steps"]
+    lines = [f"+ {format_grouped_hundredths(steps[0][1])}"]
+    for operator, operand, subtotal in steps[1:]:
+        lines.extend(
+            [
+                f"{operator} {format_grouped_hundredths(operand)}",
+                "---------------",
+                f"+ {format_grouped_hundredths(subtotal)}",
+            ]
+        )
+    return "<pre>" + "\n".join(lines) + "</pre>"
 
-    return "<pre>" + "\n".join(
-        [*lines, "---------------", f"+ {format_grouped_hundredths(calculation['result'])}"]
-    ) + "</pre>"
+
+def evaluate_running_tokens(raw_tokens: list[Any]) -> dict[str, Any]:
+    """Evaluate ordinary calculator input left-to-right, retaining subtotals."""
+    if not raw_tokens:
+        raise CalculationError("Илэрхийлэл хоосон байна")
+    if any(token in ("(", ")") for token in raw_tokens):
+        raise CalculationError("Энгийн тооцоололд хаалт ашиглах шаардлагагүй")
+
+    first, *remaining = raw_tokens
+    if isinstance(first, str) and (first in OPERATORS or first.endswith("%")):
+        raise CalculationError("Expression must start with a number")
+    subtotal = _decimal(first)
+    steps: list[tuple[str, Decimal, Decimal]] = [("+", subtotal, subtotal)]
+
+    if len(remaining) % 2:
+        raise CalculationError("Expression is incomplete")
+    for operator, raw_operand in zip(remaining[0::2], remaining[1::2]):
+        if operator not in OPERATORS:
+            raise CalculationError("Expression is invalid")
+        operand = _decimal(raw_operand)
+        try:
+            subtotal = {
+                "+": subtotal+ operand,
+                "-": subtotal - operand,
+                "*": subtotal * operand,
+                "/": subtotal / operand,
+            }[operator]
+        except (DivisionByZero, ZeroDivisionError) as exc:
+            raise CalculationError("Тэгд хуваах боломжгүй") from exc
+        steps.append(({"*": "*", "/": "/"}.get(operator, operator), operand, subtotal))
+
+    return {"result": format_decimal(subtotal), "steps": steps}
 
 
 def evaluate_tokens(raw_tokens: list[Any]) -> dict[str, str]:

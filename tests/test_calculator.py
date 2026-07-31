@@ -7,6 +7,7 @@ from services.calculator import (
     format_decimal,
     format_grouped_hundredths,
     format_hundredths,
+    evaluate_running_tokens,
     parse_numeric_expression,
     render_normal_calculation,
 )
@@ -37,16 +38,19 @@ class CalculatorTests(unittest.TestCase):
         self.assertEqual(format_hundredths("2.345"), "2.35")
         self.assertEqual(format_hundredths("10"), "10.00")
 
-    def test_normal_calculation_uses_numbered_grouped_ledger_format(self) -> None:
-        tokens = parse_numeric_expression("844,800.00 + 1,000,000 + 8,187,978.38")
+    def test_normal_calculation_uses_running_grouped_ledger_format(self) -> None:
+        tokens = parse_numeric_expression("2,621,878.49 + 5,000 * 44.90")
         self.assertEqual(format_grouped_hundredths("1000"), "1,000.00")
+        self.assertEqual(evaluate_running_tokens(tokens)["result"], "117946844.201")
         self.assertEqual(
             render_normal_calculation(tokens),
-            "<pre>+ 844,800.00  №1\n"
-            "+ 1,000,000.00  №2\n"
-            "+ 8,187,978.38  №3\n"
+            "<pre>+ 2,621,878.49\n"
+            "+ 5,000.00\n"
             "---------------\n"
-            "+ 10,032,778.38</pre>",
+            "+ 2,626,878.49\n"
+            "* 44.90\n"
+            "---------------\n"
+            "+ 117,946,844.20</pre>",
         )
 
     def test_parentheses_work_in_long_numeric_expression(self) -> None:
