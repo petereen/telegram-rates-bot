@@ -18,6 +18,9 @@ TELEGRAM_OIDC_CLIENT_SECRET: str = os.getenv("TELEGRAM_OIDC_CLIENT_SECRET", "")
 # Shared secret required before a Telegram identity can create an app session.
 # Keep this backend-only; the user enters it in the login screen.
 APP_API_KEY: str = os.getenv("APP_API_KEY", "").strip()
+# Server-to-server key for the external agent integration. Keep this optional
+# at startup so existing bot deployments continue to work until configured.
+AGENT_RATES_API_KEY: str = os.getenv("AGENT_RATES_API_KEY", "").strip()
 # Keep accepting the shorter name so deployments can migrate without a
 # simultaneous environment-variable rename.
 API_KEY_ALIAS: str = os.getenv("API_KEY", "").strip()

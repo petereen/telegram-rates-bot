@@ -9,7 +9,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from telegram import Bot, InlineQueryResultArticle, InputTextMessageContent
@@ -29,6 +39,7 @@ from api.auth import (
     validate_mini_app_data,
 )
 from config import (
+    AGENT_RATES_API_KEY,
     TELEGRAM_APP_SHORT_NAME,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_BOT_USERNAME,
@@ -93,6 +104,12 @@ class RefreshInput(BaseModel):
     keys: list[str] = Field(default_factory=list)
 
 
+class AgentRateRequest(BaseModel):
+    provider: str
+    pair: str
+    force_refresh: bool = False
+
+
 class CalculationInput(BaseModel):
     tokens: list[Any]
 
@@ -122,6 +139,38 @@ class FormulaOrderInput(BaseModel):
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _verify_agent_key(authorization: str) -> None:
+    """Authenticate the separate AI system without using a user session."""
+    expected = f"Bearer {AGENT_RATES_API_KEY}"
+    if not AGENT_RATES_API_KEY or not secrets.compare_digest(authorization, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.post("/api/agent/rate")
+async def agent_rate(
+    payload: AgentRateRequest,
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """Return one current rate for an authenticated server-to-server agent."""
+    _verify_agent_key(authorization)
+
+    try:
+        provider = get_provider(payload.provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Unknown provider") from exc
+
+    if payload.pair not in provider.PAIRS:
+        raise HTTPException(status_code=404, detail="Unknown currency pair")
+
+    snapshot = await asyncio.to_thread(
+        get_rate_snapshot,
+        payload.provider,
+        payload.pair,
+        payload.force_refresh,
+    )
+    return snapshot.to_dict()
 
 
 @app.post("/api/auth/mini-app")

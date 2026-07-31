@@ -26,6 +26,44 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
+    def test_agent_rate_requires_bearer_key(self) -> None:
+        with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"):
+            response = self.client.post(
+                "/api/agent/rate",
+                json={"provider": "CBR", "pair": "USD/RUB"},
+            )
+        self.assertEqual(response.status_code, 401)
+
+    def test_agent_rate_returns_snapshot(self) -> None:
+        snapshot = RateSnapshot(
+            key="rate:CBR:USD/RUB",
+            kind="subscription",
+            source="CBR",
+            pair="USD/RUB",
+            values=[RateValue("value", "92.5")],
+            fetched_at="2026-07-31T00:00:00+00:00",
+        )
+        with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"), patch(
+            "api.app.get_rate_snapshot", return_value=snapshot
+        ):
+            response = self.client.post(
+                "/api/agent/rate",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"provider": "CBR", "pair": "USD/RUB"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["source"], "CBR")
+        self.assertEqual(response.json()["values"][0]["amount"], "92.5")
+
+    def test_agent_rate_rejects_unknown_pair(self) -> None:
+        with patch("api.app.AGENT_RATES_API_KEY", "agent-secret"):
+            response = self.client.post(
+                "/api/agent/rate",
+                headers={"Authorization": "Bearer agent-secret"},
+                json={"provider": "CBR", "pair": "NOPE/RUB"},
+            )
+        self.assertEqual(response.status_code, 404)
+
     def test_calculator_endpoint(self) -> None:
         response = self.client.post(
             "/api/calculate", json={"tokens": ["100", "/", "4", "+", "5"]}
