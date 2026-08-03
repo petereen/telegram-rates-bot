@@ -470,7 +470,7 @@ def get_app_settings() -> dict[str, Any]:
     result = (
         _get_client()
         .table("app_settings")
-        .select("calculator_mode,updated_at")
+        .select("calculator_mode,admin_ids,updated_at")
         .eq("singleton", True)
         .limit(1)
         .execute()
@@ -478,6 +478,7 @@ def get_app_settings() -> dict[str, Any]:
     row = result.data[0] if result.data else {}
     return {
         "calculatorMode": row.get("calculator_mode") or "tape",
+        "adminIds": [int(value) for value in (row.get("admin_ids") or [])],
         "updatedAt": row.get("updated_at"),
     }
 
@@ -494,7 +495,16 @@ def set_calculator_mode(mode: str) -> dict[str, Any]:
         .execute()
     )
     row = result.data[0] if result.data else {"calculator_mode": mode, "updated_at": now}
-    return {"calculatorMode": row.get("calculator_mode", mode), "updatedAt": row.get("updated_at", now)}
+    return get_app_settings()
+
+
+def set_admin_ids(admin_ids: list[int]) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    _get_client().table("app_settings").upsert(
+        {"singleton": True, "admin_ids": admin_ids, "updated_at": now},
+        on_conflict="singleton",
+    ).execute()
+    return get_app_settings()
 
 
 # ── Global branding ───────────────────────────────────────────────────

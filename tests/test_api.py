@@ -163,7 +163,7 @@ class ApiTests(unittest.TestCase):
     def test_global_calculator_settings(self) -> None:
         with patch(
             "api.app.get_app_settings",
-            return_value={"calculatorMode": "tape", "updatedAt": None},
+            return_value={"calculatorMode": "tape", "adminIds": [1], "updatedAt": None},
         ):
             response = self.client.get("/api/settings")
         self.assertEqual(response.status_code, 200)
@@ -178,7 +178,19 @@ class ApiTests(unittest.TestCase):
                 json={"calculatorMode": "legacy"},
             )
         self.assertEqual(response.status_code, 200)
-        setter.assert_called_once_with("legacy")
+            setter.assert_called_once_with("legacy")
+
+    def test_global_admin_ids_settings(self) -> None:
+        with patch(
+            "api.app.get_app_settings",
+            return_value={"calculatorMode": "tape", "adminIds": [12345], "updatedAt": None},
+        ), patch(
+            "api.app.set_admin_ids",
+            return_value={"calculatorMode": "tape", "adminIds": [42], "updatedAt": "now"},
+        ) as setter:
+            response = self.client.put("/api/settings/admin-ids", json={"adminIds": [42, 42]})
+        self.assertEqual(response.status_code, 200)
+        setter.assert_called_once_with([42])
 
     def test_subscription_is_idempotently_returned(self) -> None:
         row = {"id": "sub-1", "provider": "CBR", "symbol": "USD/RUB"}

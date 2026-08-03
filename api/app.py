@@ -59,6 +59,7 @@ from db.supabase_client import (
     soft_delete_formula_definition,
     update_formula_definition,
     set_calculator_mode,
+    set_admin_ids,
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
@@ -102,6 +103,10 @@ WEB_RATES_TIMEOUT_SECONDS = 20
 class MiniAppLogin(BaseModel):
     init_data: str = Field(alias="initData")
     api_key: str = Field(alias="apiKey")
+
+
+class AdminIdsInput(BaseModel):
+    admin_ids: list[int] = Field(alias="adminIds", min_length=1, max_length=100)
 
 
 class ApiKeyLogin(BaseModel):
@@ -589,6 +594,19 @@ async def update_calculator_mode(
     payload: CalculatorModeInput, user: AuthUser = Depends(current_user)
 ) -> dict[str, Any]:
     return await asyncio.to_thread(set_calculator_mode, payload.calculator_mode)
+
+
+@app.put("/api/settings/admin-ids")
+async def update_admin_ids(
+    payload: AdminIdsInput, user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    current_settings = await asyncio.to_thread(get_app_settings)
+    if user.telegram_id not in current_settings.get("adminIds", []):
+        raise HTTPException(status_code=403, detail="Зөвхөн админ өөрчилнө")
+    admin_ids = list(dict.fromkeys(payload.admin_ids))
+    if any(admin_id <= 0 for admin_id in admin_ids):
+        raise HTTPException(status_code=422, detail="Admin ID эерэг тоо байх ёстой")
+    return await asyncio.to_thread(set_admin_ids, admin_ids)
 
 
 async def _uploaded_logo(file: UploadFile) -> tuple[bytes, str]:

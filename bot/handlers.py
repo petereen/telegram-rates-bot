@@ -43,6 +43,7 @@ from db.supabase_client import (
     get_whitelist,
     set_cached_rate,
     get_share_bundle,
+    get_app_settings,
 )
 from providers.base import get_provider, all_providers
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
@@ -71,8 +72,9 @@ from services.rates import (
 
 log = logging.getLogger(__name__)
 
-# Admin user IDs – only these users can manage the whitelist
-ADMIN_IDS: set[int] = {1447446407, 1932946217, 1920453419}
+def _is_admin(user_id: int) -> bool:
+    """Read admin IDs from the globally persisted application settings."""
+    return user_id in set(get_app_settings().get("adminIds", []))
 
 
 async def _check_access(update: Update) -> bool:
@@ -961,7 +963,7 @@ async def cmd_wl_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
     user = update.effective_user
-    if user is None or user.id not in ADMIN_IDS:
+    if user is None or not _is_admin(user.id):
         return  # silently ignore for non-admins
     args = ctx.args
     if not args:
@@ -982,7 +984,7 @@ async def cmd_wl_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
     user = update.effective_user
-    if user is None or user.id not in ADMIN_IDS:
+    if user is None or not _is_admin(user.id):
         return
     args = ctx.args
     if not args:
@@ -1003,7 +1005,7 @@ async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
     user = update.effective_user
-    if user is None or user.id not in ADMIN_IDS:
+    if user is None or not _is_admin(user.id):
         return
     ids = get_whitelist()
     if not ids:

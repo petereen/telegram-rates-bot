@@ -25,6 +25,7 @@ vi.mock("./api", async () => {
       branding: vi.fn(),
       settings: vi.fn(),
       setCalculatorMode: vi.fn(),
+      setAdminIds: vi.fn(),
       catalog: vi.fn(),
       subscriptions: vi.fn(),
       refresh: vi.fn(),
@@ -71,8 +72,8 @@ describe("App shell", () => {
       appLogoUrl: null,
       sourceLogos: {},
     });
-    vi.mocked(api.settings).mockResolvedValue({ calculatorMode: "legacy" });
-    vi.mocked(api.setCalculatorMode).mockImplementation(async (calculatorMode) => ({ calculatorMode }));
+    vi.mocked(api.settings).mockResolvedValue({ calculatorMode: "legacy", adminIds: [] });
+    vi.mocked(api.setCalculatorMode).mockImplementation(async (calculatorMode) => ({ calculatorMode, adminIds: [] }));
     vi.mocked(api.calculate).mockResolvedValue({
       expression: "1 ÷ 3",
       result: "0.3333333333333333333333333333",
@@ -167,7 +168,7 @@ describe("App shell", () => {
   });
 
   it("uses the editable running tape when globally enabled", async () => {
-    vi.mocked(api.settings).mockResolvedValue({ calculatorMode: "tape" });
+    vi.mocked(api.settings).mockResolvedValue({ calculatorMode: "tape", adminIds: [] });
     render(<App />);
     await screen.findByRole("heading", { name: "Ханш" });
     fireEvent.click(screen.getAllByRole("button", { name: "Тооны машин" }).at(-1)!);

@@ -193,8 +193,14 @@ create table if not exists public.app_settings (
     singleton        boolean      primary key default true check (singleton),
     calculator_mode  text         not null default 'tape'
                                   check (calculator_mode in ('legacy', 'tape')),
+    admin_ids        jsonb        not null default '[1447446407, 1932946217, 1920453419, 5643779842]'::jsonb,
     updated_at       timestamptz  not null default now()
 );
+
+-- Add this setting to databases created before admin IDs became configurable.
+alter table public.app_settings
+    add column if not exists admin_ids jsonb
+    not null default '[1447446407, 1932946217, 1920453419, 5643779842]'::jsonb;
 
 insert into public.app_settings (singleton, calculator_mode)
 values (true, 'tape')
