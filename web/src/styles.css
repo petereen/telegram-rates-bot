@@ -860,72 +860,52 @@ code {
 .tape-calculator-page {
   max-width: 980px;
   margin: 0 auto;
-}
-
-.tape-header {
-  align-items: end;
-}
-
-.tape-title {
-  width: min(60vw, 420px);
-  padding: 2px 0;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  outline: none;
-  background: transparent;
-  color: var(--ink);
-  font-size: clamp(26px, 7vw, 40px);
-  font-weight: 500;
-  letter-spacing: -0.035em;
-}
-
-.tape-title:focus {
-  border-bottom-color: var(--accent);
+  padding-top: 12px;
 }
 
 .tape-workspace {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
 .tape-paper {
-  min-height: 310px;
-  max-height: min(48dvh, 520px);
+  min-height: 280px;
+  max-height: min(55dvh, 560px);
   overflow-y: auto;
-  padding: 24px 18px 30px;
+  padding: 10px 10px 14px;
   border: 1px solid var(--rule-strong);
   background:
-    linear-gradient(to bottom, transparent 35px, var(--rule) 36px) 0 0 / 100% 36px,
+    linear-gradient(to bottom, transparent 29px, var(--rule) 30px) 0 0 / 100% 30px,
     var(--paper-raised);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 6%, transparent);
   scrollbar-width: thin;
 }
 
 .tape-entry {
-  padding: 5px 2px 9px;
+  padding: 1px 0 4px;
   border-left: 3px solid transparent;
 }
 
 .tape-entry.active {
-  margin-left: -8px;
-  padding-left: 7px;
+  margin-left: -4px;
+  padding-left: 3px;
   border-left-color: var(--accent);
   background: var(--accent-soft);
 }
 
 .tape-entry-line {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: center;
-  min-height: 42px;
+  min-height: 36px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: clamp(16px, 4vw, 20px);
+  font-size: clamp(14px, 3.7vw, 18px);
   font-variant-numeric: tabular-nums;
 }
 
 .tape-entry-line select {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   border: 0;
   outline: 1px solid transparent;
   background: transparent;
@@ -944,8 +924,8 @@ code {
 .tape-value {
   width: 100%;
   min-width: 0;
-  min-height: 44px;
-  padding: 4px 8px;
+  min-height: 36px;
+  padding: 2px 5px;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -967,7 +947,7 @@ code {
 
 .tape-rate-label {
   display: block;
-  padding: 0 8px 5px 56px;
+  padding: 0 5px 2px 43px;
   color: var(--muted);
   font-size: 10px;
   text-align: right;
@@ -975,22 +955,22 @@ code {
 
 .tape-subtotal {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  margin-top: 2px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  margin-top: 0;
   font-family: "IBM Plex Mono", monospace;
-  font-size: clamp(16px, 4vw, 20px);
+  font-size: clamp(14px, 3.7vw, 18px);
   font-variant-numeric: tabular-nums;
 }
 
 .tape-subtotal strong {
-  padding: 10px 8px 2px;
+  padding: 5px 5px 1px;
   border-top: 1px solid var(--rule-strong);
   font-weight: 500;
   text-align: right;
 }
 
 .tape-pending {
-  margin: 12px 8px 0;
+  margin: 5px 5px 0;
   color: var(--faint);
   font-size: 10px;
   text-align: right;
@@ -1008,21 +988,21 @@ code {
 .tape-tools,
 .tape-bottom-actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  margin-bottom: 7px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
 .tape-tools button {
   display: flex;
-  min-height: 44px;
+  min-height: 38px;
   align-items: center;
   justify-content: center;
   gap: 5px;
   border: 1px solid var(--rule);
   background: var(--paper-raised);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .tape-keypad .equals-key {
@@ -1030,9 +1010,13 @@ code {
   font-size: 20px;
 }
 
+.tape-keypad button {
+  min-height: 50px;
+}
+
 .tape-bottom-actions {
   grid-template-columns: 1fr 1fr;
-  margin-top: 8px;
+  margin-top: 5px;
   margin-bottom: 0;
 }
 
@@ -1889,7 +1873,7 @@ code {
 
   .tape-paper {
     max-height: 680px;
-    min-height: 610px;
+    min-height: 560px;
   }
 
   .tape-controls {

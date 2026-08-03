@@ -139,7 +139,6 @@ export function TapeCalculatorPage({
   const [history, setHistory] = useState<TapeDocument[]>(readHistory);
   const [activeIndex, setActiveIndex] = useState<number>(tape.entries.length - 1);
   const [result, setResult] = useState<CalculationResult | null>(null);
-  const [completed, setCompleted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [picker, setPicker] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -172,27 +171,20 @@ export function TapeCalculatorPage({
     }
   }, [history]);
 
-  const calculate = useCallback(async (quiet = false) => {
+  const calculate = useCallback(async () => {
     const tokens = tokensFor(tape.entries);
     if (!tokens.length) return;
     setBusy(true);
     try {
       setResult(await api.calculateTape(tokens));
-      setCompleted(true);
-      if (!quiet) setActiveIndex(-1);
-      if (!quiet) tapeEndRef.current?.scrollIntoView?.({ block: "nearest" });
+      setActiveIndex(-1);
+      tapeEndRef.current?.scrollIntoView?.({ block: "nearest" });
     } catch (error) {
-      if (!quiet) notify(error instanceof Error ? error.message : "Тооцоолох боломжгүй", true);
+      notify(error instanceof Error ? error.message : "Тооцоолох боломжгүй", true);
     } finally {
       setBusy(false);
     }
   }, [notify, tape.entries]);
-
-  useEffect(() => {
-    if (!completed) return;
-    const timer = window.setTimeout(() => void calculate(true), 250);
-    return () => window.clearTimeout(timer);
-  }, [calculate, completed, tape.entries]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -271,7 +263,6 @@ export function TapeCalculatorPage({
     const next = blankTape();
     setTape(next);
     setResult(null);
-    setCompleted(false);
     setActiveIndex(0);
   }, [archive, tape]);
 
@@ -280,7 +271,6 @@ export function TapeCalculatorPage({
     setTape({ ...selected, updatedAt: new Date().toISOString() });
     setHistory((current) => current.filter((item) => item.id !== selected.id));
     setResult(null);
-    setCompleted(false);
     setActiveIndex(selected.entries.length - 1);
     setHistoryOpen(false);
   };
@@ -357,27 +347,7 @@ export function TapeCalculatorPage({
 
   return (
     <div className="page calculator-page tape-calculator-page">
-      <header className="page-header tape-header">
-        <div>
-          <span className="eyebrow">ТУУЗАН ТООЦООЛОЛ</span>
-          <h1 className="sr-only">Тооны машин</h1>
-          <input
-            className="tape-title"
-            value={tape.title}
-            maxLength={60}
-            aria-label="Туузны нэр"
-            onChange={(event) => setTape((current) => ({ ...current, title: event.target.value, updatedAt: new Date().toISOString() }))}
-          />
-        </div>
-        <div className="header-actions">
-          <button className="icon-button bordered" onClick={() => setHistoryOpen(true)} aria-label="Туузны түүх">
-            <Clock3 size={18} />
-          </button>
-          <button className="text-button" onClick={startNewTape}>
-            <Plus size={17} /> Шинэ
-          </button>
-        </div>
-      </header>
+      <h1 className="sr-only">Тооны машин</h1>
 
       <section className="tape-workspace">
         <div className="tape-paper" aria-label="Тооцооллын тууз">
@@ -438,6 +408,7 @@ export function TapeCalculatorPage({
           <div className="tape-tools">
             <button onClick={() => setPicker(true)}><WalletCards size={17} /> Ханш</button>
             <button onClick={() => setMoreOpen(true)}><Ellipsis size={18} /> Бусад</button>
+            <button onClick={() => setHistoryOpen(true)} aria-label="Туузны түүх"><Clock3 size={17} /></button>
             <button onClick={clearEntry}>CE</button>
             <button onClick={backspace} aria-label="Сүүлийн тэмдэгт устгах">⌫</button>
           </div>
