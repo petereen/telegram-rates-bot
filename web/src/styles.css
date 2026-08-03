@@ -919,7 +919,7 @@ code {
   align-items: center;
   min-height: 42px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: clamp(19px, 5vw, 25px);
+  font-size: clamp(16px, 4vw, 20px);
   font-variant-numeric: tabular-nums;
 }
 
@@ -953,6 +953,13 @@ code {
   text-align: right;
 }
 
+.tape-entry-line input[readonly] {
+  cursor: default;
+  caret-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .tape-entry-line input {
   border-bottom: 1px solid var(--accent);
   outline: none;
@@ -971,7 +978,7 @@ code {
   grid-template-columns: 48px minmax(0, 1fr);
   margin-top: 2px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: clamp(19px, 5vw, 25px);
+  font-size: clamp(16px, 4vw, 20px);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1082,7 +1089,15 @@ code {
 }
 
 .rate-picker-sheet {
-  max-height: 80dvh;
+  max-height: min(76dvh, 680px);
+}
+
+.picker-source-logo {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  border-radius: 3px;
 }
 
 .picker-search {

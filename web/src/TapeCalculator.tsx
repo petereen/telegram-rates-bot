@@ -101,6 +101,16 @@ function formatAmount(value: string): string {
   return `${sign}${integer}.${fraction}${percentage ? "%" : ""}`;
 }
 
+function sanitizeTapeValue(value: string): string {
+  const normalized = value.replaceAll(",", "").replace(/[^\d.-]/g, "");
+  const sign = normalized.startsWith("-") ? "-" : "";
+  const unsigned = normalized.replace(/-/g, "");
+  const [integer = "", ...fractionParts] = unsigned.split(".");
+  const fraction = fractionParts.join("");
+  if (!integer && !fraction && !normalized.includes(".")) return sign;
+  return `${sign}${integer || "0"}${normalized.includes(".") ? `.${fraction}` : ""}`;
+}
+
 function tokensFor(entries: TapeEntry[]): string[] {
   const complete = entries.filter((entry) => entry.value.trim());
   if (!complete.length || complete[0].percentage) return [];
@@ -393,12 +403,13 @@ export function TapeCalculatorPage({
                   </select>
                   {active && !entry.percentage ? (
                     <input
-                      autoFocus
-                      inputMode="decimal"
+                      readOnly
+                      inputMode="none"
                       aria-label={`${index + 1}-р мөрийн дүн`}
                       value={entry.value}
+                      onPointerDown={(event) => event.preventDefault()}
                       onChange={(event) => {
-                        const value = event.target.value.replace(/[^\d.,-]/g, "");
+                        const value = sanitizeTapeValue(event.target.value);
                         setResult(null);
                         updateEntries((entries) => entries.map((item, itemIndex) => itemIndex === index ? { ...item, value, label: undefined } : item));
                       }}
@@ -462,7 +473,7 @@ export function TapeCalculatorPage({
             <div className="picker-list">
               {pickerRates.filter((rate) => rate.values.length).map((rate) => (
                 <div className="picker-row" key={rate.key}>
-                  <span><strong>{rate.pair}</strong><small>{sourceLogos[rate.source]?.url && <img src={sourceLogos[rate.source].url || ""} alt="" />}{rate.source}</small></span>
+                  <span><strong>{rate.pair}</strong><small>{sourceLogos[rate.source]?.url && <img className="picker-source-logo" src={sourceLogos[rate.source].url || ""} alt="" />}{rate.source}</small></span>
                   <div>{rate.values.map((value) => <button key={value.label} onClick={() => chooseRate(rate, value)}><small>{rateLabel(value.label)}</small>{value.amount}</button>)}</div>
                 </div>
               ))}
