@@ -48,6 +48,44 @@ alter table public.cached_rates add column if not exists source_updated_at times
 alter table public.cached_rates add column if not exists refresh_lock_until timestamptz;
 create index if not exists idx_cached_rates_due on public.cached_rates(next_refresh_at);
 
+-- 4a. Persistent observations and a durable Telegram alert outbox.
+create table if not exists public.rate_observations (
+    id           bigint generated always as identity primary key,
+    provider     text        not null,
+    symbol       text        not null,
+    field        text        not null,
+    value        numeric     not null,
+    observed_at  timestamptz not null,
+    unique (provider, symbol, field, observed_at)
+);
+
+create index if not exists idx_rate_observations_lookup
+    on public.rate_observations(provider, symbol, field, observed_at desc);
+
+create table if not exists public.rate_alerts (
+    id                uuid        primary key default gen_random_uuid(),
+    subscription_id   uuid        not null references public.user_subscriptions(id) on delete cascade,
+    telegram_id       bigint      not null references public.users(telegram_id) on delete cascade,
+    provider          text        not null,
+    symbol            text        not null,
+    field             text        not null,
+    old_value         numeric     not null,
+    new_value         numeric     not null,
+    change_percent    numeric     not null,
+    threshold_percent numeric     not null,
+    observed_at       timestamptz not null,
+    status            text        not null default 'pending'
+                                check (status in ('pending', 'sent', 'failed')),
+    attempts          integer     not null default 0,
+    last_error        text,
+    created_at        timestamptz not null default now(),
+    sent_at           timestamptz,
+    unique (subscription_id, field, observed_at)
+);
+
+create index if not exists idx_rate_alerts_pending
+    on public.rate_alerts(status, created_at) where status = 'pending';
+
 -- Atomically claim a short cross-process lease before an upstream request.
 create or replace function public.claim_rate_refresh_lease(
     p_provider text, p_symbol text, p_lease_seconds integer default 60

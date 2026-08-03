@@ -304,6 +304,13 @@ def set_cached_rate(
 ) -> None:
     """Upsert a rate into the cache (in-memory + Supabase)."""
     now = datetime.now(timezone.utc)
+    # Preserve the prior shared snapshot before overwriting it.  Alert history
+    # is best-effort: cache availability must never depend on alert storage.
+    try:
+        previous = get_cached_rate_entry(provider, symbol, include_stale=True)
+    except Exception as exc:
+        log.warning("Cannot read previous alert snapshot %s/%s: %s", provider, symbol, exc)
+        previous = None
     _mem_cache[(provider, symbol)] = (now, rate_data)
     sb = _get_client()
     sb.table("cached_rates").upsert(
@@ -318,6 +325,90 @@ def set_cached_rate(
         },
         on_conflict="provider,symbol",
     ).execute()
+    try:
+        _record_rate_alerts(provider, symbol, rate_data, previous[0] if previous else None, now)
+    except Exception as exc:
+        log.warning("Cannot record rate alerts for %s/%s: %s", provider, symbol, exc)
+
+
+def _record_rate_alerts(
+    provider: str,
+    symbol: str,
+    rate_data: dict[str, Any],
+    previous_data: dict[str, Any] | None,
+    observed_at: datetime,
+) -> None:
+    """Persist displayed-field observations and enqueue qualifying alerts."""
+    from services.rate_alerts import canonical_values, sudden_change
+
+    values = canonical_values(rate_data)
+    if not values:
+        return
+    previous_values = canonical_values(previous_data or {})
+    sb = _get_client()
+    for field, current in values.items():
+        rows = (
+            sb.table("rate_observations")
+            .select("value")
+            .eq("provider", provider).eq("symbol", symbol).eq("field", field)
+            .order("observed_at", desc=True).limit(30).execute().data
+        )
+        # Query returns newest first; volatility needs chronological values.
+        history = [Decimal(str(row["value"])) for row in reversed(rows)]
+        previous = previous_values.get(field)
+        detected = (
+            sudden_change(provider, symbol, previous, current, history)
+            if previous is not None else None
+        )
+        sb.table("rate_observations").upsert({
+            "provider": provider, "symbol": symbol, "field": field,
+            "value": str(current), "observed_at": observed_at.isoformat(),
+        }, on_conflict="provider,symbol,field,observed_at").execute()
+        if detected is None:
+            continue
+        move, threshold = detected
+        subscriptions = (
+            sb.table("user_subscriptions").select("id,telegram_id")
+            .eq("provider", provider).eq("symbol", symbol).execute().data
+        )
+        for subscription in subscriptions:
+            sb.table("rate_alerts").upsert({
+                "subscription_id": subscription["id"],
+                "telegram_id": subscription["telegram_id"],
+                "provider": provider, "symbol": symbol, "field": field,
+                "old_value": str(previous), "new_value": str(current),
+                "change_percent": str(move), "threshold_percent": str(threshold),
+                "observed_at": observed_at.isoformat(),
+            }, on_conflict="subscription_id,field,observed_at").execute()
+
+
+def get_pending_rate_alerts(limit: int = 100) -> list[dict[str, Any]]:
+    result = (
+        _get_client().table("rate_alerts").select("*")
+        .eq("status", "pending").order("created_at").limit(limit).execute()
+    )
+    return result.data  # type: ignore[return-value]
+
+
+def mark_rate_alert_sent(alert_id: str) -> None:
+    sb = _get_client()
+    row = sb.table("rate_alerts").select("attempts").eq("id", alert_id).execute()
+    attempts = int(row.data[0]["attempts"]) + 1 if row.data else 1
+    sb.table("rate_alerts").update({
+        "status": "sent", "sent_at": datetime.now(timezone.utc).isoformat(),
+        "attempts": attempts,
+    }).eq("id", alert_id).eq("status", "pending").execute()
+
+
+def mark_rate_alert_failed(alert_id: str, error: str, *, permanent: bool = False) -> None:
+    """Keep transient Telegram failures queued; terminal chat failures stop retrying."""
+    sb = _get_client()
+    row = sb.table("rate_alerts").select("attempts").eq("id", alert_id).execute()
+    attempts = int(row.data[0]["attempts"]) + 1 if row.data else 1
+    sb.table("rate_alerts").update({
+        "status": "failed" if permanent else "pending",
+        "attempts": attempts, "last_error": error[:500],
+    }).eq("id", alert_id).eq("status", "pending").execute()
 
 
 def try_acquire_rate_refresh_lease(provider: str, symbol: str) -> bool:
