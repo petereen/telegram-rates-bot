@@ -147,11 +147,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ calculatorMode }),
     }),
-  setAdminIds: (adminIds: number[]) =>
-    request<AppSettings>("/api/settings/admin-ids", {
-      method: "PUT",
-      body: JSON.stringify({ adminIds }),
-    }),
   uploadAppLogo: (file: File) => {
     const body = new FormData();
     body.append("file", file);

@@ -85,7 +85,6 @@ export type CalculatorMode = "legacy" | "tape";
 
 export interface AppSettings {
   calculatorMode: CalculatorMode;
-  adminIds: number[];
   updatedAt?: string | null;
 }
 

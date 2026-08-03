@@ -1221,13 +1221,10 @@ interface SettingsPageProps {
   branding: BrandingSettings;
   calculatorMode: CalculatorMode;
   calculatorModeBusy: boolean;
-  adminIds: number[];
-  adminIdsBusy: boolean;
   onTheme(theme: ThemeChoice): void;
   onManage(): void;
   onBranding(branding: BrandingSettings): void;
   onCalculatorMode(mode: CalculatorMode): void;
-  onAdminIds(adminIds: number[]): void;
   notify(message: string, error?: boolean): void;
   onLogout(): void;
 }
@@ -1240,20 +1237,16 @@ function SettingsPage({
   branding,
   calculatorMode,
   calculatorModeBusy,
-  adminIds,
-  adminIdsBusy,
   onTheme,
   onManage,
   onBranding,
   onCalculatorMode,
-  onAdminIds,
   notify,
   onLogout,
 }: SettingsPageProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [brandingOpen, setBrandingOpen] = useState(false);
   const [brandingBusy, setBrandingBusy] = useState<string | null>(null);
-  const [adminIdsDraft, setAdminIdsDraft] = useState(adminIds.join(", "));
 
   const upload = async (file: File, provider?: string) => {
     setBrandingBusy(provider || "app");
@@ -1304,33 +1297,6 @@ function SettingsPage({
           <span className="access-badge">API KEY</span>
         </div>
       </section>
-      {adminIds.includes(user.telegramId) && (
-      <section className="settings-section">
-        <span className="settings-label">ГЛОБАЛ АДМИНУУД</span>
-        <p className="settings-hint">Whitelist удирдах Telegram ID-ууд. Бүх хэрэглэгчид үйлчилнэ.</p>
-        <input
-          className="settings-input"
-          aria-label="Админ Telegram ID"
-          value={adminIdsDraft}
-          disabled={adminIdsBusy}
-          onChange={(event) => setAdminIdsDraft(event.target.value)}
-          placeholder="1447446407, 1932946217"
-        />
-        <button
-          className="primary-button"
-          disabled={adminIdsBusy}
-          onClick={() => {
-            const values = adminIdsDraft
-              .split(",")
-              .map((value) => Number(value.trim()))
-              .filter((value) => Number.isInteger(value) && value > 0);
-            onAdminIds([...new Set(values)]);
-          }}
-        >
-          Хадгалах
-        </button>
-      </section>
-      )}
       <section className="settings-section">
         <span className="settings-label">ХАРАГДАЦ</span>
         <div className="theme-control">
@@ -1520,10 +1486,8 @@ export default function App() {
   });
   const [appSettings, setAppSettings] = useState<AppSettings>({
     calculatorMode: "tape",
-    adminIds: [],
   });
   const [calculatorModeBusy, setCalculatorModeBusy] = useState(false);
-  const [adminIdsBusy, setAdminIdsBusy] = useState(false);
   const [legacyTokens, setLegacyTokens] = useState<Array<string | number>>([]);
   const [legacyResult, setLegacyResult] = useState<CalculationResult | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -1742,18 +1706,6 @@ export default function App() {
     }
   };
 
-  const changeAdminIds = async (adminIds: number[]) => {
-    if (!adminIds.length) return;
-    setAdminIdsBusy(true);
-    try {
-      setAppSettings(await api.setAdminIds(adminIds));
-      notify("Админууд шинэчлэгдлээ");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Админууд шинэчлэх боломжгүй", true);
-    } finally {
-      setAdminIdsBusy(false);
-    }
-  };
 
   useEffect(() => {
     if (authState !== "ready" || !isTelegramLaunch()) return;
@@ -2070,13 +2022,10 @@ export default function App() {
             branding={branding}
             calculatorMode={appSettings.calculatorMode}
             calculatorModeBusy={calculatorModeBusy}
-            adminIds={appSettings.adminIds || []}
-            adminIdsBusy={adminIdsBusy}
             onTheme={setTheme}
             onManage={() => setManageOpen(true)}
             onBranding={setBranding}
             onCalculatorMode={(mode) => void changeCalculatorMode(mode)}
-            onAdminIds={(ids) => void changeAdminIds(ids)}
             notify={notify}
             onLogout={() => {
               void api.logout().then(() => {

@@ -38,12 +38,8 @@ from db.supabase_client import (
     get_subscriptions,
     clear_subscriptions,
     is_whitelisted,
-    add_to_whitelist,
-    remove_from_whitelist,
-    get_whitelist,
     set_cached_rate,
     get_share_bundle,
-    get_app_settings,
 )
 from providers.base import get_provider, all_providers
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
@@ -71,11 +67,6 @@ from services.rates import (
 )
 
 log = logging.getLogger(__name__)
-
-def _is_admin(user_id: int) -> bool:
-    """Read admin IDs from the globally persisted application settings."""
-    return user_id in set(get_app_settings().get("adminIds", []))
-
 
 async def _check_access(update: Update) -> bool:
     """Return True if the user is whitelisted, otherwise reply and return False."""
@@ -957,64 +948,6 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
-# ── Hidden admin commands: /wl_add, /wl_remove, /wl_list ──────────────
-
-async def cmd_wl_add(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None:
-        return
-    user = update.effective_user
-    if user is None or not _is_admin(user.id):
-        return  # silently ignore for non-admins
-    args = ctx.args
-    if not args:
-        await update.message.reply_text("Хэрэглэгчийн ID оруулна уу: /wl_add <user_id>")
-        return
-    try:
-        target_id = int(args[0])
-    except ValueError:
-        await update.message.reply_text("ID тоо байх ёстой.")
-        return
-    if add_to_whitelist(target_id):
-        await update.message.reply_text(f"✅ {target_id} whitelist-д нэмэгдлээ.")
-    else:
-        await update.message.reply_text(f"{target_id} аль хэдийн whitelist-д байна.")
-
-
-async def cmd_wl_remove(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None:
-        return
-    user = update.effective_user
-    if user is None or not _is_admin(user.id):
-        return
-    args = ctx.args
-    if not args:
-        await update.message.reply_text("Хэрэглэгчийн ID оруулна уу: /wl_remove <user_id>")
-        return
-    try:
-        target_id = int(args[0])
-    except ValueError:
-        await update.message.reply_text("ID тоо байх ёстой.")
-        return
-    if remove_from_whitelist(target_id):
-        await update.message.reply_text(f"❌ {target_id} whitelist-ээс хасагдлаа.")
-    else:
-        await update.message.reply_text(f"{target_id} whitelist-д байхгүй байна.")
-
-
-async def cmd_wl_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None:
-        return
-    user = update.effective_user
-    if user is None or not _is_admin(user.id):
-        return
-    ids = get_whitelist()
-    if not ids:
-        await update.message.reply_text("Whitelist хоосон байна.")
-        return
-    lines = [str(uid) for uid in ids]
-    await update.message.reply_text("Whitelist:\n" + "\n".join(lines))
-
-
 # ── Inline query handler (share via @botname) ─────────────────────
 
 _INLINE_RATE_LABELS = {
@@ -1358,9 +1291,6 @@ def register_handlers(app: Application) -> None:  # type: ignore[type-arg]
     app.add_handler(CommandHandler("rates", cmd_rates))
     app.add_handler(CommandHandler("oyuns", cmd_rates))
     app.add_handler(CommandHandler("calc", cmd_calc))
-    app.add_handler(CommandHandler("wl_add", cmd_wl_add))
-    app.add_handler(CommandHandler("wl_remove", cmd_wl_remove))
-    app.add_handler(CommandHandler("wl_list", cmd_wl_list))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(InlineQueryHandler(inline_query_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
