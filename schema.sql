@@ -4,8 +4,11 @@
 create table if not exists public.users (
     telegram_id  bigint       primary key,
     username     text         not null default '',
+    rate_alerts_enabled boolean not null default true,
     created_at   timestamptz  not null default now()
 );
+
+alter table public.users add column if not exists rate_alerts_enabled boolean not null default true;
 
 -- 2. Subscriptions table
 create table if not exists public.user_subscriptions (

@@ -147,6 +147,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ calculatorMode }),
     }),
+  setRateAlertsEnabled: (enabled: boolean) =>
+    request<{ rateAlertsEnabled: boolean }>("/api/settings/rate-alerts", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   uploadAppLogo: (file: File) => {
     const body = new FormData();
     body.append("file", file);

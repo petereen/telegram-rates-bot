@@ -56,6 +56,25 @@ def ensure_user(telegram_id: int, username: str | None = None) -> None:
     ).execute()
 
 
+def get_rate_alerts_enabled(telegram_id: int) -> bool:
+    result = (
+        _get_client().table("users").select("rate_alerts_enabled")
+        .eq("telegram_id", telegram_id).limit(1).execute()
+    )
+    if not result.data:
+        return True
+    return bool(result.data[0].get("rate_alerts_enabled", True))
+
+
+def set_rate_alerts_enabled(telegram_id: int, enabled: bool) -> bool:
+    result = (
+        _get_client().table("users")
+        .update({"rate_alerts_enabled": bool(enabled)})
+        .eq("telegram_id", telegram_id).execute()
+    )
+    return bool(result.data)
+
+
 # ── Subscriptions ──────────────────────────────────────────────────────
 
 def add_subscription(telegram_id: int, provider: str, symbol: str) -> bool:
@@ -372,6 +391,12 @@ def _record_rate_alerts(
             .eq("provider", provider).eq("symbol", symbol).execute().data
         )
         for subscription in subscriptions:
+            user_row = (
+                sb.table("users").select("rate_alerts_enabled")
+                .eq("telegram_id", subscription["telegram_id"]).limit(1).execute().data
+            )
+            if user_row and user_row[0].get("rate_alerts_enabled") is False:
+                continue
             sb.table("rate_alerts").upsert({
                 "subscription_id": subscription["id"],
                 "telegram_id": subscription["telegram_id"],

@@ -12,6 +12,7 @@ from config import REFRESH_WORKER_CONCURRENCY, REFRESH_WORKER_INTERVAL_SECONDS, 
 from db.supabase_client import (
     get_all_active_rate_pairs,
     get_cached_rate_entry,
+    get_rate_alerts_enabled,
     get_pending_rate_alerts,
     mark_rate_alert_failed,
     mark_rate_alert_sent,
@@ -86,6 +87,14 @@ async def deliver_rate_alerts_once(limit: int = 100) -> int:
     sent = 0
     async with Bot(TELEGRAM_BOT_TOKEN) as bot:
         for alert in alerts:
+            enabled = await asyncio.to_thread(
+                get_rate_alerts_enabled, int(alert["telegram_id"])
+            )
+            if not enabled:
+                await asyncio.to_thread(
+                    mark_rate_alert_failed, alert["id"], "user disabled rate alerts", permanent=True
+                )
+                continue
             try:
                 await bot.send_message(
                     chat_id=alert["telegram_id"], text=render_alert_html(alert),

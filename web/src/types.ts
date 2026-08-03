@@ -85,6 +85,7 @@ export type CalculatorMode = "legacy" | "tape";
 
 export interface AppSettings {
   calculatorMode: CalculatorMode;
+  rateAlertsEnabled?: boolean;
   updatedAt?: string | null;
 }
 

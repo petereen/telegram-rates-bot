@@ -51,6 +51,7 @@ from db.supabase_client import (
     create_share_bundle,
     get_branding,
     get_app_settings,
+    get_rate_alerts_enabled,
     get_formula_definitions,
     get_share_bundle,
     get_subscriptions,
@@ -59,6 +60,7 @@ from db.supabase_client import (
     soft_delete_formula_definition,
     update_formula_definition,
     set_calculator_mode,
+    set_rate_alerts_enabled,
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
@@ -130,6 +132,10 @@ class CalculationInput(BaseModel):
 
 class CalculatorModeInput(BaseModel):
     calculator_mode: Literal["legacy", "tape"] = Field(alias="calculatorMode")
+
+
+class RateAlertsInput(BaseModel):
+    enabled: bool
 
 
 class TapeShareEntryInput(BaseModel):
@@ -581,7 +587,11 @@ async def branding(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
 
 @app.get("/api/settings")
 async def app_settings(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
-    return await asyncio.to_thread(get_app_settings)
+    settings = await asyncio.to_thread(get_app_settings)
+    settings["rateAlertsEnabled"] = await asyncio.to_thread(
+        get_rate_alerts_enabled, user.telegram_id
+    )
+    return settings
 
 
 @app.put("/api/settings/calculator-mode")
@@ -589,6 +599,16 @@ async def update_calculator_mode(
     payload: CalculatorModeInput, user: AuthUser = Depends(current_user)
 ) -> dict[str, Any]:
     return await asyncio.to_thread(set_calculator_mode, payload.calculator_mode)
+
+
+@app.put("/api/settings/rate-alerts")
+async def update_rate_alerts(
+    payload: RateAlertsInput, user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    await asyncio.to_thread(set_rate_alerts_enabled, user.telegram_id, payload.enabled)
+    return {"rateAlertsEnabled": await asyncio.to_thread(
+        get_rate_alerts_enabled, user.telegram_id
+    )}
 
 
 async def _uploaded_logo(file: UploadFile) -> tuple[bytes, str]:

@@ -1221,10 +1221,13 @@ interface SettingsPageProps {
   branding: BrandingSettings;
   calculatorMode: CalculatorMode;
   calculatorModeBusy: boolean;
+  rateAlertsEnabled: boolean;
+  rateAlertsBusy: boolean;
   onTheme(theme: ThemeChoice): void;
   onManage(): void;
   onBranding(branding: BrandingSettings): void;
   onCalculatorMode(mode: CalculatorMode): void;
+  onRateAlerts(enabled: boolean): void;
   notify(message: string, error?: boolean): void;
   onLogout(): void;
 }
@@ -1237,10 +1240,13 @@ function SettingsPage({
   branding,
   calculatorMode,
   calculatorModeBusy,
+  rateAlertsEnabled,
+  rateAlertsBusy,
   onTheme,
   onManage,
   onBranding,
   onCalculatorMode,
+  onRateAlerts,
   notify,
   onLogout,
 }: SettingsPageProps) {
@@ -1312,6 +1318,25 @@ function SettingsPage({
             >
               <Icon size={16} />
               {label}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <span className="settings-label">ХАНШИЙН СЭРЭМЖЛҮҮЛЭГ</span>
+        <p className="settings-hint">
+          Таны shortlist дахь ханш огцом өөрчлөгдвөл Telegram чатад мэдэгдэнэ.
+        </p>
+        <div className="theme-control" role="group" aria-label="Ханшийн сэрэмжлүүлэг">
+          {([[true, "Асаалттай"], [false, "Унтраалттай"]] as const).map(([value, label]) => (
+            <button
+              key={label}
+              className={rateAlertsEnabled === value ? "active" : ""}
+              disabled={rateAlertsBusy}
+              aria-pressed={rateAlertsEnabled === value}
+              onClick={() => onRateAlerts(value)}
+            >
+              {value ? "🔔" : "🔕"} {label}
             </button>
           ))}
         </div>
@@ -1486,8 +1511,10 @@ export default function App() {
   });
   const [appSettings, setAppSettings] = useState<AppSettings>({
     calculatorMode: "tape",
+    rateAlertsEnabled: true,
   });
   const [calculatorModeBusy, setCalculatorModeBusy] = useState(false);
+  const [rateAlertsBusy, setRateAlertsBusy] = useState(false);
   const [legacyTokens, setLegacyTokens] = useState<Array<string | number>>([]);
   const [legacyResult, setLegacyResult] = useState<CalculationResult | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -1703,6 +1730,20 @@ export default function App() {
       notify(error instanceof Error ? error.message : "Горим солих боломжгүй", true);
     } finally {
       setCalculatorModeBusy(false);
+    }
+  };
+
+  const changeRateAlerts = async (enabled: boolean) => {
+    if (enabled === (appSettings.rateAlertsEnabled ?? true)) return;
+    setRateAlertsBusy(true);
+    try {
+      const result = await api.setRateAlertsEnabled(enabled);
+      setAppSettings((current) => ({ ...current, ...result }));
+      notify(enabled ? "Ханшийн сэрэмжлүүлэг асаалаа" : "Ханшийн сэрэмжлүүлэг унтраалаа");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Сэрэмжлүүлэг өөрчлөх боломжгүй", true);
+    } finally {
+      setRateAlertsBusy(false);
     }
   };
 
@@ -2022,10 +2063,13 @@ export default function App() {
             branding={branding}
             calculatorMode={appSettings.calculatorMode}
             calculatorModeBusy={calculatorModeBusy}
+            rateAlertsEnabled={appSettings.rateAlertsEnabled ?? true}
+            rateAlertsBusy={rateAlertsBusy}
             onTheme={setTheme}
             onManage={() => setManageOpen(true)}
             onBranding={setBranding}
             onCalculatorMode={(mode) => void changeCalculatorMode(mode)}
+            onRateAlerts={(enabled) => void changeRateAlerts(enabled)}
             notify={notify}
             onLogout={() => {
               void api.logout().then(() => {
