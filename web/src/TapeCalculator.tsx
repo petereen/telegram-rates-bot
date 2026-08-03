@@ -92,13 +92,11 @@ function formatAmount(value: string): string {
   const percentage = value.includes("%");
   const normalized = value.replaceAll(",", "").replace("%", "").trim();
   const match = normalized.match(/^(-?)(\d*)(?:\.(\d*))?$/);
-  if (!match || (!match[2] && !match[3])) return value || "0.00";
+  if (!match || (!match[2] && !match[3])) return value || "0";
   const [, sign, rawInteger, rawFraction = ""] = match;
-  let cents = BigInt(rawInteger || "0") * 100n + BigInt((rawFraction + "00").slice(0, 2));
-  if (Number(rawFraction[2] || "0") >= 5) cents += 1n;
-  const integer = (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const fraction = (cents % 100n).toString().padStart(2, "0");
-  return `${sign}${integer}.${fraction}${percentage ? "%" : ""}`;
+  const integer = (rawInteger || "0").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const decimal = normalized.includes(".") ? `.${rawFraction}` : "";
+  return `${sign}${integer}${decimal}${percentage ? "%" : ""}`;
 }
 
 function sanitizeTapeValue(value: string): string {

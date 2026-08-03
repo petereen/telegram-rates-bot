@@ -92,5 +92,5 @@ test("prints a left-to-right financial tape", async ({ page }) => {
   await page.getByRole("button", { name: "×", exact: true }).click();
   await page.getByLabel("3-р мөрийн дүн").fill("44.9");
   await page.getByRole("button", { name: "=", exact: true }).click();
-  await expect(page.getByText("+ 117,946,844.20")).toBeVisible();
+  await expect(page.getByText("+ 117,946,844.201")).toBeVisible();
 });

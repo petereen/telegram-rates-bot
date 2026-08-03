@@ -185,7 +185,7 @@ describe("App shell", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "=" }));
 
-    expect(await screen.findByText("+ 117,946,844.20")).toBeInTheDocument();
+    expect(await screen.findByText("+ 117,946,844.201")).toBeInTheDocument();
     expect(api.calculateTape).toHaveBeenCalledWith([
       "2621878.49", "+", "5000", "*", "44.9",
     ]);
