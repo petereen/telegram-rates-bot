@@ -933,6 +933,33 @@ code {
   text-align: right;
 }
 
+.tape-input-display {
+  position: relative;
+  min-width: 0;
+}
+
+.tape-input-display input {
+  display: block;
+}
+
+.tape-caret {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  width: 1px;
+  height: 1.1em;
+  background: var(--accent);
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: tape-caret-blink 1s steps(1, end) infinite;
+}
+
+@keyframes tape-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 .tape-entry-line input[readonly] {
   cursor: default;
   caret-color: transparent;

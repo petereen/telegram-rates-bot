@@ -370,18 +370,21 @@ export function TapeCalculatorPage({
                     <option value="*">×</option><option value="/">÷</option>
                   </select>
                   {active && !entry.percentage ? (
-                    <input
-                      readOnly
-                      inputMode="none"
-                      aria-label={`${index + 1}-р мөрийн дүн`}
-                      value={entry.value}
-                      onPointerDown={(event) => event.preventDefault()}
-                      onChange={(event) => {
-                        const value = sanitizeTapeValue(event.target.value);
-                        setResult(null);
-                        updateEntries((entries) => entries.map((item, itemIndex) => itemIndex === index ? { ...item, value, label: undefined } : item));
-                      }}
-                    />
+                    <div className="tape-input-display">
+                      <input
+                        readOnly
+                        inputMode="none"
+                        aria-label={`${index + 1}-р мөрийн дүн`}
+                        value={entry.value}
+                        onPointerDown={(event) => event.preventDefault()}
+                        onChange={(event) => {
+                          const value = sanitizeTapeValue(event.target.value);
+                          setResult(null);
+                          updateEntries((entries) => entries.map((item, itemIndex) => itemIndex === index ? { ...item, value, label: undefined } : item));
+                        }}
+                      />
+                      <span className="tape-caret" aria-hidden="true" />
+                    </div>
                   ) : (
                     <button className="tape-value" onClick={() => setActiveIndex(index)}>
                       {formatAmount(entry.value)}
