@@ -694,7 +694,7 @@ async def _share_payload(
     if tape:
         entries = list(tape.get("entries") or [])
         if not entries or len(entries) > 100:
-            raise HTTPException(status_code=422, detail="Туузны мөрийн тоо буруу байна")
+            raise HTTPException(status_code=422, detail="Бодолтын мөрийн тоо буруу байна")
         try:
             calculation = evaluate_running_tokens(tape_entries_to_tokens(entries))
             tape_html = render_tape_html(str(tape.get("title") or "Тооцоолол"), entries)

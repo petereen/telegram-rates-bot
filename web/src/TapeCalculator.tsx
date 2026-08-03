@@ -409,7 +409,7 @@ export function TapeCalculatorPage({
           <div className="tape-tools">
             <button onClick={() => setPicker(true)}><WalletCards size={17} /> Ханш</button>
             <button onClick={() => setMoreOpen(true)}><Ellipsis size={18} /> Бусад</button>
-            <button onClick={() => setHistoryOpen(true)} aria-label="Туузны түүх"><Clock3 size={17} /></button>
+            <button onClick={() => setHistoryOpen(true)} aria-label="Бодолтын түүх"><Clock3 size={17} /></button>
             <button onClick={clearEntry}>CE</button>
             <button onClick={backspace} aria-label="Сүүлийн тэмдэгт устгах">⌫</button>
           </div>
@@ -426,8 +426,8 @@ export function TapeCalculatorPage({
             ))}
           </div>
           <div className="tape-bottom-actions">
-            <button className="secondary-button" onClick={startNewTape}><Plus size={17} /> Шинэ тууз</button>
-            <button className="primary-button" disabled={!result} onClick={shareTape}><Send size={17} /> Тууз хуваалцах</button>
+            <button className="secondary-button" onClick={startNewTape}><Plus size={17} /> Шинэ бодолт</button>
+            <button className="primary-button" disabled={!result} onClick={shareTape}><Send size={17} /> Бодолт хуваалцах</button>
           </div>
           <span className="sr-only" role="status" aria-live="polite">
             {result ? `Нийт ${formatAmount(result.result)}` : ""}
@@ -458,7 +458,7 @@ export function TapeCalculatorPage({
       {moreOpen && (
         <div className="sheet-backdrop" onMouseDown={() => setMoreOpen(false)}>
           <section className="sheet compact-sheet" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="sheet-handle" /><header className="sheet-header"><h2>Хувийн үйлдэл</h2><button className="icon-button" onClick={() => setMoreOpen(false)} aria-label="Хаах"><X size={20} /></button></header>
+            <div className="sheet-handle" /><header className="sheet-header"><h2>Бусад үйлдэл</h2><button className="icon-button" onClick={() => setMoreOpen(false)} aria-label="Хаах"><X size={20} /></button></header>
             <div className="percent-strip">{["+0.5%", "+1%", "-1%"].map((value) => <button key={value} onClick={() => addPercentage(value)}>{value}</button>)}</div>
           </section>
         </div>
@@ -467,17 +467,17 @@ export function TapeCalculatorPage({
       {historyOpen && (
         <div className="sheet-backdrop" onMouseDown={() => setHistoryOpen(false)}>
           <section className="sheet tape-history-sheet" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="sheet-handle" /><header className="sheet-header"><div><span className="eyebrow">СҮҮЛИЙН {MAX_HISTORY}</span><h2>Туузны түүх</h2></div><button className="icon-button" onClick={() => setHistoryOpen(false)} aria-label="Хаах"><X size={20} /></button></header>
+            <div className="sheet-handle" /><header className="sheet-header"><div><span className="eyebrow">СҮҮЛИЙН {MAX_HISTORY}</span><h2>Бодолтын түүх</h2></div><button className="icon-button" onClick={() => setHistoryOpen(false)} aria-label="Хаах"><X size={20} /></button></header>
             <div className="tape-history-list">
               {history.map((item) => (
                 <div className="tape-history-row" key={item.id}>
-                  <input aria-label="Туузны нэр өөрчлөх" value={item.title} onChange={(event) => setHistory((current) => current.map((entry) => entry.id === item.id ? { ...entry, title: event.target.value } : entry))} />
+                  <input aria-label="Бодолтын нэр өөрчлөх" value={item.title} onChange={(event) => setHistory((current) => current.map((entry) => entry.id === item.id ? { ...entry, title: event.target.value } : entry))} />
                   <small>{new Date(item.updatedAt).toLocaleString("mn-MN")}</small>
                   <button onClick={() => reopenTape(item)}>Нээх <ChevronRight size={16} /></button>
                   <button className="danger-icon" aria-label={`${item.title} устгах`} onClick={() => setHistory((current) => current.filter((entry) => entry.id !== item.id))}><Trash2 size={16} /></button>
                 </div>
               ))}
-              {!history.length && <p className="picker-empty">Хадгалсан тууз алга</p>}
+              {!history.length && <p className="picker-empty">Хадгалсан бодолт алга</p>}
             </div>
           </section>
         </div>

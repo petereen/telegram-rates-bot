@@ -1698,7 +1698,7 @@ export default function App() {
     setCalculatorModeBusy(true);
     try {
       setAppSettings(await api.setCalculatorMode(mode));
-      notify(mode === "tape" ? "Туузан тооны машин идэвхжлээ" : "Хуучин тооны машин идэвхжлээ");
+      notify(mode === "tape" ? "Туузан тооны машин идэвхжлээ" : "Энгийн тооны машин идэвхжлээ");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Горим солих боломжгүй", true);
     } finally {
