@@ -188,6 +188,18 @@ insert into public.app_branding (singleton)
 values (true)
 on conflict (singleton) do nothing;
 
+-- Global application behavior shared by every authenticated user.
+create table if not exists public.app_settings (
+    singleton        boolean      primary key default true check (singleton),
+    calculator_mode  text         not null default 'tape'
+                                  check (calculator_mode in ('legacy', 'tape')),
+    updated_at       timestamptz  not null default now()
+);
+
+insert into public.app_settings (singleton, calculator_mode)
+values (true, 'tape')
+on conflict (singleton) do nothing;
+
 create table if not exists public.source_branding (
     provider     text         primary key,
     logo_path    text,

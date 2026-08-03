@@ -81,5 +81,37 @@ export interface BrandingSettings {
 
 export type CalculationShareMode = "full" | "hundredths";
 
+export type CalculatorMode = "legacy" | "tape";
+
+export interface AppSettings {
+  calculatorMode: CalculatorMode;
+  updatedAt?: string | null;
+}
+
+export interface CalculationStep {
+  operator: "+" | "-" | "*" | "/";
+  operand: string;
+  subtotal: string;
+  percentage?: boolean;
+}
+
+export interface CalculationResult {
+  expression: string;
+  result: string;
+  steps: CalculationStep[];
+}
+
+export interface TapeShareEntry {
+  operator: "+" | "-" | "*" | "/";
+  value: string;
+  percentage?: boolean;
+  label?: string;
+}
+
+export interface CalculationTapeShare {
+  title: string;
+  entries: TapeShareEntry[];
+}
+
 export type ThemeChoice = "system" | "light" | "dark";
 export type TabId = "rates" | "calculated" | "calculator" | "settings";

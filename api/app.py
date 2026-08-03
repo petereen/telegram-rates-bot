@@ -50,6 +50,7 @@ from db.supabase_client import (
     create_formula_definition,
     create_share_bundle,
     get_branding,
+    get_app_settings,
     get_formula_definitions,
     get_share_bundle,
     get_subscriptions,
@@ -57,6 +58,7 @@ from db.supabase_client import (
     remove_subscription_by_id,
     soft_delete_formula_definition,
     update_formula_definition,
+    set_calculator_mode,
 )
 from providers.base import all_providers, get_provider
 from providers.registry import register_all_providers
@@ -66,7 +68,14 @@ from services.branding import (
     remove_logo,
     replace_logo,
 )
-from services.calculator import CalculationError, evaluate_tokens, format_hundredths
+from services.calculator import (
+    CalculationError,
+    evaluate_running_tokens,
+    evaluate_tokens,
+    format_hundredths,
+    render_tape_html,
+    tape_entries_to_tokens,
+)
 from services.rates import (
     FIELD_LABELS,
     RateSnapshot,
@@ -116,6 +125,23 @@ class AgentRateRequest(BaseModel):
 
 class CalculationInput(BaseModel):
     tokens: list[Any]
+    mode: Literal["legacy", "tape"] = "legacy"
+
+
+class CalculatorModeInput(BaseModel):
+    calculator_mode: Literal["legacy", "tape"] = Field(alias="calculatorMode")
+
+
+class TapeShareEntryInput(BaseModel):
+    operator: Literal["+", "-", "*", "/"]
+    value: str
+    percentage: bool = False
+    label: Optional[str] = None
+
+
+class CalculationTapeInput(BaseModel):
+    title: str = "Тооцоолол"
+    entries: list[TapeShareEntryInput]
 
 
 class ShareInput(BaseModel):
@@ -123,6 +149,9 @@ class ShareInput(BaseModel):
     calculation_tokens: Optional[list[Any]] = Field(default=None, alias="calculationTokens")
     calculation_result_mode: Literal["full", "hundredths"] = Field(
         default="full", alias="calculationResultMode"
+    )
+    calculation_tape: Optional[CalculationTapeInput] = Field(
+        default=None, alias="calculationTape"
     )
 
 
@@ -550,6 +579,18 @@ async def branding(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
     return await asyncio.to_thread(get_branding)
 
 
+@app.get("/api/settings")
+async def app_settings(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
+    return await asyncio.to_thread(get_app_settings)
+
+
+@app.put("/api/settings/calculator-mode")
+async def update_calculator_mode(
+    payload: CalculatorModeInput, user: AuthUser = Depends(current_user)
+) -> dict[str, Any]:
+    return await asyncio.to_thread(set_calculator_mode, payload.calculator_mode)
+
+
 async def _uploaded_logo(file: UploadFile) -> tuple[bytes, str]:
     content = await file.read(2 * 1024 * 1024 + 1)
     return content, file.content_type or ""
@@ -632,20 +673,34 @@ async def refresh_rates(
 @app.post("/api/calculate")
 async def calculate(
     payload: CalculationInput, user: AuthUser = Depends(current_user)
-) -> dict[str, str]:
+) -> dict[str, Any]:
     try:
-        return evaluate_tokens(payload.tokens)
+        if payload.mode == "tape":
+            return evaluate_running_tokens(payload.tokens)
+        result = evaluate_tokens(payload.tokens)
+        return {**result, "steps": []}
     except CalculationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 async def _share_payload(
     user: AuthUser, payload: dict[str, Any]
-) -> tuple[str, list[RateSnapshot], Optional[dict[str, str]]]:
+) -> tuple[str, list[RateSnapshot], Optional[dict[str, Any]]]:
     keys = list(payload.get("rateKeys") or [])
     calculation_tokens = payload.get("calculationTokens")
+    tape = payload.get("calculationTape")
     calculation = None
-    if calculation_tokens:
+    tape_html = None
+    if tape:
+        entries = list(tape.get("entries") or [])
+        if not entries or len(entries) > 100:
+            raise HTTPException(status_code=422, detail="Туузны мөрийн тоо буруу байна")
+        try:
+            calculation = evaluate_running_tokens(tape_entries_to_tokens(entries))
+            tape_html = render_tape_html(str(tape.get("title") or "Тооцоолол"), entries)
+        except CalculationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif calculation_tokens:
         try:
             calculation = evaluate_tokens(calculation_tokens)
         except CalculationError as exc:
@@ -657,7 +712,7 @@ async def _share_payload(
     calculation_result = None
     if calculation and mode == "hundredths":
         calculation_result = format_hundredths(calculation["result"])
-    html_text = render_share_html(snapshots, calculation, calculation_result)
+    html_text = tape_html or render_share_html(snapshots, calculation, calculation_result)
     if len(html_text) > 4096:
         raise HTTPException(
             status_code=413,
@@ -694,6 +749,10 @@ async def create_share(
         "rateKeys": payload.rate_keys,
         "calculationTokens": payload.calculation_tokens,
         "calculationResultMode": payload.calculation_result_mode,
+        "calculationTape": (
+            payload.calculation_tape.model_dump(by_alias=True)
+            if payload.calculation_tape else None
+        ),
     }
     html_text, _, _ = await _share_payload(user, raw_payload)
     token = secrets.token_urlsafe(18)

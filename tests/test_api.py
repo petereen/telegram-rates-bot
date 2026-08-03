@@ -149,6 +149,36 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["result"], "30")
+        self.assertEqual(response.json()["steps"], [])
+
+    def test_tape_calculator_endpoint_is_left_to_right(self) -> None:
+        response = self.client.post(
+            "/api/calculate",
+            json={"mode": "tape", "tokens": ["100", "/", "4", "+", "5"]},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["result"], "30")
+        self.assertEqual(response.json()["steps"][-1]["subtotal"], "30")
+
+    def test_global_calculator_settings(self) -> None:
+        with patch(
+            "api.app.get_app_settings",
+            return_value={"calculatorMode": "tape", "updatedAt": None},
+        ):
+            response = self.client.get("/api/settings")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["calculatorMode"], "tape")
+
+        with patch(
+            "api.app.set_calculator_mode",
+            return_value={"calculatorMode": "legacy", "updatedAt": "now"},
+        ) as setter:
+            response = self.client.put(
+                "/api/settings/calculator-mode",
+                json={"calculatorMode": "legacy"},
+            )
+        self.assertEqual(response.status_code, 200)
+        setter.assert_called_once_with("legacy")
 
     def test_subscription_is_idempotently_returned(self) -> None:
         row = {"id": "sub-1", "provider": "CBR", "symbol": "USD/RUB"}

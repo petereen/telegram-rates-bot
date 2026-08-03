@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, DivisionByZero, InvalidOperation, ROUND_HALF_UP
+import html
 import re
 from typing import Any
 
@@ -159,16 +160,53 @@ def render_normal_calculation(raw_tokens: list[Any]) -> str:
     """Render normal calculator input as a left-to-right running ledger."""
     calculation = evaluate_running_tokens(raw_tokens)
     steps = calculation["steps"]
-    lines = [f"+ {format_grouped_hundredths(steps[0][1])}"]
-    for operator, operand, subtotal in steps[1:]:
+    lines = [f"+ {format_grouped_hundredths(steps[0]['operand'])}"]
+    for step in steps[1:]:
         lines.extend(
             [
-                f"{operator} {format_grouped_hundredths(operand)}",
+                f"{step['operator']} {step['operand'] if step.get('percentage') else format_grouped_hundredths(step['operand'])}",
                 "---------------",
-                f"+ {format_grouped_hundredths(subtotal)}",
+                f"+ {format_grouped_hundredths(step['subtotal'])}",
             ]
         )
     return "<pre>" + "\n".join(lines) + "</pre>"
+
+
+def tape_entries_to_tokens(entries: list[dict[str, Any]]) -> list[str]:
+    """Convert validated tape rows to calculator tokens."""
+    if not entries:
+        raise CalculationError("Илэрхийлэл хоосон байна")
+    tokens = [str(entries[0].get("value", ""))]
+    for entry in entries[1:]:
+        operator = str(entry.get("operator", "+"))
+        value = str(entry.get("value", ""))
+        if entry.get("percentage"):
+            tokens.append(("-" if operator == "-" else "+") + value.lstrip("+-"))
+        else:
+            tokens.extend([operator, value])
+    return tokens
+
+
+def render_tape_html(title: str, entries: list[dict[str, Any]]) -> str:
+    """Render an annotated calculation tape for Telegram HTML messages."""
+    calculation = evaluate_running_tokens(tape_entries_to_tokens(entries))
+    lines = [f"🧾 <b>{html.escape(title.strip() or 'Тооцоолол')}</b>"]
+    for index, (entry, step) in enumerate(zip(entries, calculation["steps"])):
+        operand = (
+            step["operand"]
+            if step.get("percentage")
+            else format_grouped_hundredths(step["operand"])
+        )
+        lines.append(f"<code>{step['operator']} {operand}</code>")
+        label = str(entry.get("label") or "").strip()
+        if label:
+            lines.append(f"<i>{html.escape(label[:160])}</i>")
+        if index:
+            lines.extend([
+                "<code>---------------</code>",
+                f"<code>+ {format_grouped_hundredths(step['subtotal'])}</code>",
+            ])
+    return "\n".join(lines)
 
 
 def evaluate_running_tokens(raw_tokens: list[Any]) -> dict[str, Any]:
@@ -182,26 +220,65 @@ def evaluate_running_tokens(raw_tokens: list[Any]) -> dict[str, Any]:
     if isinstance(first, str) and (first in OPERATORS or first.endswith("%")):
         raise CalculationError("Expression must start with a number")
     subtotal = _decimal(first)
-    steps: list[tuple[str, Decimal, Decimal]] = [("+", subtotal, subtotal)]
+    steps: list[dict[str, Any]] = [{
+        "operator": "+",
+        "operand": format_decimal(subtotal),
+        "subtotal": format_decimal(subtotal),
+        "percentage": False,
+    }]
+    display = [format_decimal(subtotal)]
 
-    if len(remaining) % 2:
-        raise CalculationError("Expression is incomplete")
-    for operator, raw_operand in zip(remaining[0::2], remaining[1::2]):
+    position = 0
+    while position < len(remaining):
+        candidate = remaining[position]
+        if isinstance(candidate, str) and candidate.endswith("%"):
+            try:
+                percent = _decimal(candidate[:-1])
+            except CalculationError as exc:
+                raise CalculationError("Буруу хувь") from exc
+            subtotal *= Decimal("1") + percent / Decimal("100")
+            operator = "+" if percent >= 0 else "-"
+            steps.append({
+                "operator": operator,
+                "operand": f"{format_decimal(abs(percent))}%",
+                "subtotal": format_decimal(subtotal),
+                "percentage": True,
+            })
+            display.append(candidate)
+            position += 1
+            continue
+        if position + 1 >= len(remaining):
+            raise CalculationError("Expression is incomplete")
+        operator = candidate
+        raw_operand = remaining[position + 1]
         if operator not in OPERATORS:
             raise CalculationError("Expression is invalid")
         operand = _decimal(raw_operand)
         try:
-            subtotal = {
-                "+": subtotal+ operand,
-                "-": subtotal - operand,
-                "*": subtotal * operand,
-                "/": subtotal / operand,
-            }[operator]
+            if operator == "+":
+                subtotal += operand
+            elif operator == "-":
+                subtotal -= operand
+            elif operator == "*":
+                subtotal *= operand
+            else:
+                subtotal /= operand
         except (DivisionByZero, ZeroDivisionError) as exc:
             raise CalculationError("Тэгд хуваах боломжгүй") from exc
-        steps.append(({"*": "*", "/": "/"}.get(operator, operator), operand, subtotal))
+        steps.append({
+            "operator": operator,
+            "operand": format_decimal(operand),
+            "subtotal": format_decimal(subtotal),
+            "percentage": False,
+        })
+        display.extend(["×" if operator == "*" else "÷" if operator == "/" else operator, format_decimal(operand)])
+        position += 2
 
-    return {"result": format_decimal(subtotal), "steps": steps}
+    return {
+        "expression": " ".join(display),
+        "result": format_decimal(subtotal),
+        "steps": steps,
+    }
 
 
 def evaluate_tokens(raw_tokens: list[Any]) -> dict[str, str]:

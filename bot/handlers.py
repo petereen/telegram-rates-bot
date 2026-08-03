@@ -53,6 +53,7 @@ from services.calculator import (
     evaluate_running_tokens,
     parse_numeric_expression,
     render_normal_calculation,
+    render_tape_html,
 )
 from services.group_calculator import (
     ShortlistCalculationError,
@@ -1231,15 +1232,21 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 else []
             )
             calc_tokens = bundle.get("calculationTokens")
-            calculation = evaluate_tokens(calc_tokens) if calc_tokens else None
+            tape = bundle.get("calculationTape")
+            calculation = evaluate_tokens(calc_tokens) if calc_tokens and not tape else None
             calculation_result = (
                 format_hundredths(calculation["result"])
                 if calculation
                 and bundle.get("calculationResultMode") == "hundredths"
                 else None
             )
-            html_text = render_share_html(
-                snapshots, calculation, calculation_result
+            html_text = (
+                render_tape_html(
+                    str(tape.get("title") or "Тооцоолол"),
+                    list(tape.get("entries") or []),
+                )
+                if tape
+                else render_share_html(snapshots, calculation, calculation_result)
             )
         elif rate_id.startswith("_t:"):
             # Direct text share (e.g. calc results)

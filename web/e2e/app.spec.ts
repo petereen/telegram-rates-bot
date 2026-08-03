@@ -23,6 +23,7 @@ test.beforeEach(async ({ page }) => {
       },
       "/api/formulas": { formulas: [] },
       "/api/branding": { appLogoUrl: null, sourceLogos: {} },
+      "/api/settings": { calculatorMode: "tape" },
       "/api/subscriptions": { subscriptions: [] },
       "/api/rates": { rates: [] },
       "/api/calculated": {
@@ -41,6 +42,18 @@ test.beforeEach(async ({ page }) => {
         ],
       },
     };
+    if (pathname === "/api/calculate") {
+      await route.fulfill({ json: {
+        expression: "2621878.49 + 5000 × 44.9",
+        result: "117946844.201",
+        steps: [
+          { operator: "+", operand: "2621878.49", subtotal: "2621878.49" },
+          { operator: "+", operand: "5000", subtotal: "2626878.49" },
+          { operator: "*", operand: "44.9", subtotal: "117946844.201" },
+        ],
+      } });
+      return;
+    }
     await route.fulfill({ json: bodies[pathname] || { ok: true } });
   });
 });
@@ -68,4 +81,16 @@ test("keeps every watchlist source and pair reachable", async ({ page }) => {
   await finalSource.scrollIntoViewIfNeeded();
   await finalSource.click();
   await expect(page.getByText("P12/MNT")).toBeVisible();
+});
+
+test("prints a left-to-right financial tape", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Тооны машин" }).last().click();
+  await page.getByLabel("1-р мөрийн дүн").fill("2621878.49");
+  await page.getByRole("button", { name: "+", exact: true }).click();
+  await page.getByLabel("2-р мөрийн дүн").fill("5000");
+  await page.getByRole("button", { name: "×", exact: true }).click();
+  await page.getByLabel("3-р мөрийн дүн").fill("44.9");
+  await page.getByRole("button", { name: "=", exact: true }).click();
+  await expect(page.getByText("+ 117,946,844.20")).toBeVisible();
 });

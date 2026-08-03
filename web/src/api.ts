@@ -1,5 +1,9 @@
 import type {
   BrandingSettings,
+  AppSettings,
+  CalculationResult,
+  CalculationTapeShare,
+  CalculatorMode,
   CalculationShareMode,
   CatalogProvider,
   FormulaDefinition,
@@ -137,6 +141,12 @@ export const api = {
       body: JSON.stringify({ ids }),
     }),
   branding: () => request<BrandingSettings>("/api/branding"),
+  settings: () => request<AppSettings>("/api/settings"),
+  setCalculatorMode: (calculatorMode: CalculatorMode) =>
+    request<AppSettings>("/api/settings/calculator-mode", {
+      method: "PUT",
+      body: JSON.stringify({ calculatorMode }),
+    }),
   uploadAppLogo: (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -180,14 +190,20 @@ export const api = {
       body: JSON.stringify({ keys }),
     }),
   calculate: (tokens: Array<string | number>) =>
-    request<{ expression: string; result: string }>("/api/calculate", {
+    request<CalculationResult>("/api/calculate", {
       method: "POST",
       body: JSON.stringify({ tokens }),
+    }),
+  calculateTape: (tokens: Array<string | number>) =>
+    request<CalculationResult>("/api/calculate", {
+      method: "POST",
+      body: JSON.stringify({ tokens, mode: "tape" }),
     }),
   share: (
     rateKeys: string[],
     calculationTokens?: Array<string | number>,
     calculationResultMode: CalculationShareMode = "full",
+    calculationTape?: CalculationTapeShare,
   ) =>
     request<{
       preparedMessageId: string;
@@ -200,6 +216,7 @@ export const api = {
         rateKeys,
         calculationTokens,
         calculationResultMode,
+        calculationTape,
       }),
     }),
   prepareBundle: (token: string) =>

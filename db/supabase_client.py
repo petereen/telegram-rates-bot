@@ -466,6 +466,39 @@ def soft_delete_formula_definition(formula_id: str) -> bool:
 
 # ── Global branding ───────────────────────────────────────────────────
 
+def get_app_settings() -> dict[str, Any]:
+    result = (
+        _get_client()
+        .table("app_settings")
+        .select("calculator_mode,updated_at")
+        .eq("singleton", True)
+        .limit(1)
+        .execute()
+    )
+    row = result.data[0] if result.data else {}
+    return {
+        "calculatorMode": row.get("calculator_mode") or "tape",
+        "updatedAt": row.get("updated_at"),
+    }
+
+
+def set_calculator_mode(mode: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    result = (
+        _get_client()
+        .table("app_settings")
+        .upsert(
+            {"singleton": True, "calculator_mode": mode, "updated_at": now},
+            on_conflict="singleton",
+        )
+        .execute()
+    )
+    row = result.data[0] if result.data else {"calculator_mode": mode, "updated_at": now}
+    return {"calculatorMode": row.get("calculator_mode", mode), "updatedAt": row.get("updated_at", now)}
+
+
+# ── Global branding ───────────────────────────────────────────────────
+
 def _public_branding_url(path: str | None) -> str | None:
     if not path:
         return None

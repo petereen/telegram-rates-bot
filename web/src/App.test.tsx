@@ -23,11 +23,14 @@ vi.mock("./api", async () => {
       calculated: vi.fn(),
       formulas: vi.fn(),
       branding: vi.fn(),
+      settings: vi.fn(),
+      setCalculatorMode: vi.fn(),
       catalog: vi.fn(),
       subscriptions: vi.fn(),
       refresh: vi.fn(),
       logout: vi.fn(),
       calculate: vi.fn(),
+      calculateTape: vi.fn(),
       share: vi.fn(),
       createFormula: vi.fn(),
       updateFormula: vi.fn(),
@@ -68,9 +71,21 @@ describe("App shell", () => {
       appLogoUrl: null,
       sourceLogos: {},
     });
+    vi.mocked(api.settings).mockResolvedValue({ calculatorMode: "legacy" });
+    vi.mocked(api.setCalculatorMode).mockImplementation(async (calculatorMode) => ({ calculatorMode }));
     vi.mocked(api.calculate).mockResolvedValue({
       expression: "1 ÷ 3",
       result: "0.3333333333333333333333333333",
+      steps: [],
+    });
+    vi.mocked(api.calculateTape).mockResolvedValue({
+      expression: "2621878.49 + 5000 × 44.9",
+      result: "117946844.201",
+      steps: [
+        { operator: "+", operand: "2621878.49", subtotal: "2621878.49" },
+        { operator: "+", operand: "5000", subtotal: "2626878.49" },
+        { operator: "*", operand: "44.9", subtotal: "117946844.201" },
+      ],
     });
     vi.mocked(api.share).mockResolvedValue({
       preparedMessageId: "prepared",
@@ -149,6 +164,39 @@ describe("App shell", () => {
         "hundredths",
       ),
     );
+  });
+
+  it("uses the editable running tape when globally enabled", async () => {
+    vi.mocked(api.settings).mockResolvedValue({ calculatorMode: "tape" });
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ханш" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Тооны машин" }).at(-1)!);
+
+    fireEvent.change(screen.getByLabelText("1-р мөрийн дүн"), {
+      target: { value: "2621878.49" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "+" }));
+    fireEvent.change(screen.getByLabelText("2-р мөрийн дүн"), {
+      target: { value: "5000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "×" }));
+    fireEvent.change(screen.getByLabelText("3-р мөрийн дүн"), {
+      target: { value: "44.9" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "=" }));
+
+    expect(await screen.findByText("+ 117,946,844.20")).toBeInTheDocument();
+    expect(api.calculateTape).toHaveBeenCalledWith([
+      "2621878.49", "+", "5000", "*", "44.9",
+    ]);
+  });
+
+  it("changes the global calculator mode from settings", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ханш" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Тохиргоо" }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: /Тууз/ }));
+    await waitFor(() => expect(api.setCalculatorMode).toHaveBeenCalledWith("tape"));
   });
 
   it("shows watchlist rates first and searches all sources on demand", async () => {

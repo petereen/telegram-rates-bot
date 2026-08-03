@@ -6,7 +6,9 @@ The backend uses **python-telegram-bot**, **FastAPI**, and **Supabase**; the
 frontend uses **React**, **TypeScript**, and **Vite**.
 
 The Mini App and browser UI share four sections: **Ханш**, **Тооцоолсон**,
-**Тооны машин**, and **Тохиргоо**. Users enter with the shared `APP_API_KEY`,
+**Тооны машин**, and **Тохиргоо**. The calculator supports both the original
+keypad and an editable, locally saved running tape; the global mode is selected
+from Settings. Users enter with the shared `APP_API_KEY`,
 then authenticate their Telegram identity. Authenticated users can globally
 manage calculated formulas from **Тооцоолсон** and app/source logos from
 **Тохиргоо**. Existing bot commands remain available.
@@ -43,7 +45,7 @@ telegram-rates-bot/
 
 Open the Supabase SQL Editor and run every statement in `schema.sql`. This
 creates the user, subscription, bot whitelist, cache, short-lived share-bundle,
-global formula, and branding tables, seeds the three original formulas, and
+global formula, application-settings, and branding tables, seeds the three original formulas, and
 creates the public `branding` Storage bucket. Existing subscription and cache
 keys remain unchanged. A public bucket only permits public reads: the backend
 must use a service-role/storage-capable key for uploads and deletes. Set

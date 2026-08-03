@@ -32,6 +32,7 @@ import {
 } from "react";
 import type { FormEvent } from "react";
 import { api, setAccessToken } from "./api";
+import { TapeCalculatorPage } from "./TapeCalculator";
 import {
   getTelegramInitData,
   getTelegramWebApp,
@@ -41,6 +42,10 @@ import {
 } from "./telegram";
 import type {
   BrandingSettings,
+  AppSettings,
+  CalculationResult,
+  CalculationTapeShare,
+  CalculatorMode,
   CalculationShareMode,
   CatalogProvider,
   FormulaDefinition,
@@ -485,24 +490,27 @@ interface CalculatorPageProps {
   ): void;
   notify(message: string, error?: boolean): void;
   sourceLogos: BrandingSettings["sourceLogos"];
+  tokens: Array<string | number>;
+  setTokens: React.Dispatch<React.SetStateAction<Array<string | number>>>;
+  result: CalculationResult | null;
+  setResult: React.Dispatch<React.SetStateAction<CalculationResult | null>>;
 }
 
-function CalculatorPage({
+function LegacyCalculatorPage({
   availableRates,
   onShare,
   notify,
   sourceLogos,
+  tokens,
+  setTokens,
+  result,
+  setResult,
 }: CalculatorPageProps) {
-  const [tokens, setTokens] = useState<Array<string | number>>([]);
   const [picker, setPicker] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<RateSnapshot[] | null>(null);
   const [searching, setSearching] = useState(false);
   const searchSequence = useRef(0);
-  const [result, setResult] = useState<{
-    expression: string;
-    result: string;
-  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const appendDigit = (digit: string) => {
@@ -1211,9 +1219,12 @@ interface SettingsPageProps {
   subscriptionCount: number;
   catalog: CatalogProvider[];
   branding: BrandingSettings;
+  calculatorMode: CalculatorMode;
+  calculatorModeBusy: boolean;
   onTheme(theme: ThemeChoice): void;
   onManage(): void;
   onBranding(branding: BrandingSettings): void;
+  onCalculatorMode(mode: CalculatorMode): void;
   notify(message: string, error?: boolean): void;
   onLogout(): void;
 }
@@ -1224,9 +1235,12 @@ function SettingsPage({
   subscriptionCount,
   catalog,
   branding,
+  calculatorMode,
+  calculatorModeBusy,
   onTheme,
   onManage,
   onBranding,
+  onCalculatorMode,
   notify,
   onLogout,
 }: SettingsPageProps) {
@@ -1297,6 +1311,32 @@ function SettingsPage({
               onClick={() => onTheme(value)}
             >
               <Icon size={16} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <span className="settings-label">ГЛОБАЛ ТООНЫ МАШИН</span>
+        <p className="settings-hint">
+          Энэ сонголт бүх хэрэглэгчид үйлчилнэ.
+        </p>
+        <div className="theme-control" role="group" aria-label="Тооны машины горим">
+          {([[
+            "legacy",
+            "Хуучин",
+          ], [
+            "tape",
+            "Тууз",
+          ]] as const).map(([value, label]) => (
+            <button
+              key={value}
+              className={calculatorMode === value ? "active" : ""}
+              disabled={calculatorModeBusy}
+              aria-pressed={calculatorMode === value}
+              onClick={() => onCalculatorMode(value)}
+            >
+              <Calculator size={16} />
               {label}
             </button>
           ))}
@@ -1444,6 +1484,12 @@ export default function App() {
     appLogoUrl: null,
     sourceLogos: {},
   });
+  const [appSettings, setAppSettings] = useState<AppSettings>({
+    calculatorMode: "tape",
+  });
+  const [calculatorModeBusy, setCalculatorModeBusy] = useState(false);
+  const [legacyTokens, setLegacyTokens] = useState<Array<string | number>>([]);
+  const [legacyResult, setLegacyResult] = useState<CalculationResult | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
   const [formulaManagerOpen, setFormulaManagerOpen] = useState(false);
@@ -1478,16 +1524,18 @@ export default function App() {
   }, []);
 
   const loadReferenceData = useCallback(async () => {
-    const [catalogData, subscriptionData, formulaData, brandingData] = await Promise.all([
+    const [catalogData, subscriptionData, formulaData, brandingData, settingsData] = await Promise.all([
       api.catalog(),
       api.subscriptions(),
       api.formulas(),
       api.branding(),
+      api.settings(),
     ]);
     setCatalog(catalogData.providers);
     setSubscriptions(subscriptionData.subscriptions);
     setFormulas(formulaData.formulas);
     setBranding(brandingData);
+    setAppSettings(settingsData);
   }, []);
 
   const loadRates = useCallback(async () => {
@@ -1632,6 +1680,33 @@ export default function App() {
   }, [authState, refresh]);
 
   useEffect(() => {
+    if (authState !== "ready") return;
+    const refreshSettings = () => {
+      if (document.visibilityState !== "visible") return;
+      void api.settings().then(setAppSettings).catch(() => undefined);
+    };
+    window.addEventListener("focus", refreshSettings);
+    document.addEventListener("visibilitychange", refreshSettings);
+    return () => {
+      window.removeEventListener("focus", refreshSettings);
+      document.removeEventListener("visibilitychange", refreshSettings);
+    };
+  }, [authState]);
+
+  const changeCalculatorMode = async (mode: CalculatorMode) => {
+    if (mode === appSettings.calculatorMode) return;
+    setCalculatorModeBusy(true);
+    try {
+      setAppSettings(await api.setCalculatorMode(mode));
+      notify(mode === "tape" ? "Туузан тооны машин идэвхжлээ" : "Хуучин тооны машин идэвхжлээ");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Горим солих боломжгүй", true);
+    } finally {
+      setCalculatorModeBusy(false);
+    }
+  };
+
+  useEffect(() => {
     if (authState !== "ready" || !isTelegramLaunch()) return;
     const start = getTelegramWebApp()?.initDataUnsafe?.start_param;
     if (!start?.startsWith("share_")) return;
@@ -1671,13 +1746,17 @@ export default function App() {
     rateKeys: string[],
     calculationTokens?: Array<string | number>,
     calculationResultMode: CalculationShareMode = "full",
+    calculationTape?: CalculationTapeShare,
   ) => {
     try {
-      const share = await api.share(
-        rateKeys,
-        calculationTokens,
-        calculationResultMode,
-      );
+      const share = calculationTape
+        ? await api.share(
+            rateKeys,
+            calculationTokens,
+            calculationResultMode,
+            calculationTape,
+          )
+        : await api.share(rateKeys, calculationTokens, calculationResultMode);
       if (isTelegramLaunch()) {
         const successful = await sharePreparedMessage(share.preparedMessageId);
         const telegramApp = getTelegramWebApp();
@@ -1913,12 +1992,25 @@ export default function App() {
           </div>
         )}
         {tab === "calculator" && (
-          <CalculatorPage
-            availableRates={upsertRates(rates, calculated)}
-            onShare={(tokens, mode) => void doShare([], tokens, mode)}
-            notify={notify}
-            sourceLogos={branding.sourceLogos}
-          />
+          appSettings.calculatorMode === "tape" ? (
+            <TapeCalculatorPage
+              availableRates={upsertRates(rates, calculated)}
+              onShare={(tape) => void doShare([], undefined, "hundredths", tape)}
+              notify={notify}
+              sourceLogos={branding.sourceLogos}
+            />
+          ) : (
+            <LegacyCalculatorPage
+              availableRates={upsertRates(rates, calculated)}
+              onShare={(tokens, mode) => void doShare([], tokens, mode)}
+              notify={notify}
+              sourceLogos={branding.sourceLogos}
+              tokens={legacyTokens}
+              setTokens={setLegacyTokens}
+              result={legacyResult}
+              setResult={setLegacyResult}
+            />
+          )
         )}
         {tab === "settings" && user && (
           <SettingsPage
@@ -1927,9 +2019,12 @@ export default function App() {
             subscriptionCount={subscriptions.length}
             catalog={catalog}
             branding={branding}
+            calculatorMode={appSettings.calculatorMode}
+            calculatorModeBusy={calculatorModeBusy}
             onTheme={setTheme}
             onManage={() => setManageOpen(true)}
             onBranding={setBranding}
+            onCalculatorMode={(mode) => void changeCalculatorMode(mode)}
             notify={notify}
             onLogout={() => {
               void api.logout().then(() => {
