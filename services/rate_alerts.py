@@ -122,5 +122,4 @@ def render_alert_html(alert: dict[str, Any]) -> str:
         f"<b>{direction}:</b> <code>{move:+.2f}%</code> "
         f"(босго: {Decimal(str(alert['threshold_percent'])):.2f}%)\n"
         f"<i>{html.escape(observed)}</i>\n\n"
-        "<i>Энэ нь хөрөнгө оруулалтын зөвлөгөө биш.</i>"
     )
