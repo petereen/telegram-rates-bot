@@ -149,6 +149,7 @@ To deploy updates after pushing new code to GitHub, SSH into the VPS, switch to 
 | `/remove` | Open provider menu to remove pairs       |
 | `/list`   | Display current watchlist                |
 | `/rates`  | Fetch and display rates for all pairs    |
+| `/calc`   | Start the numeric calculator              |
 | `/clear`  | Remove all pairs from the watchlist      |
 | `/help`   | Show help message                        |
 

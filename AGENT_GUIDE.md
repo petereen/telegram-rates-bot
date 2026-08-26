@@ -75,7 +75,7 @@ Supabase tables:
 - `/list`: shows watchlist entries grouped by provider.
 - `/clear`: deletes all of the current user’s subscriptions.
 - `/rates` and `/oyuns`: retrieve and display every watched rate.
-- `/calc`: displays the three derived rates described below.
+- `/calc`: starts the numeric calculator without displaying rates.
 
 The server-to-server agent API can fetch one pair with `POST /api/agent/rate`.
 For MongolBank, it accepts every uppercase `XXX/MNT` pair and returns `not
@@ -134,8 +134,8 @@ Each rate message has:
 
 Calculated formulas are global rows in `calculated_formulas`. The schema seeds
 the following defaults, and API-key-authenticated users can add, edit, reorder, disable,
-or remove formulas in the Mini App. The bot and web API fetch distinct formula
-inputs in parallel. `/calc` initially displays:
+or remove formulas in the Mini App. The bot fetches and displays these formula
+rates as part of `/rates`:
 
 ```text
 ДЕЛЬКРАДО = MongolBank RUB/MNT × 1.005

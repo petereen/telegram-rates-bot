@@ -120,7 +120,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/list – хадгалсан валютын жагсаалт\n"
         "/rates – ханшийн жагсаалт авах\n"
         "/oyuns – ханшийн жагсаалт авах\n"
-        "/calc – тооцоолсон ханш\n"
+        "/calc – тооны машин\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж\n\n"
@@ -140,7 +140,7 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "/list – хадгалсан валютын жагсаалт\n"
         "/rates – ханшийн жагсаалт авах\n"
         "/oyuns – ханшийн жагсаалт авах\n"
-        "/calc – тооцоолсон ханш\n"
+        "/calc – тооны машин\n"
         "/remove – валютын хослол хасах\n"
         "/clear – валютын жагсаалт устгах\n"
         "/help – тусламж\n\n"
@@ -226,12 +226,6 @@ def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-async def _build_formula_section(force: bool = False) -> list[str]:
-    """Calculate and render all enabled global formula snapshots."""
-    snapshots = await get_formula_snapshots(force=force)
-    return [render_formula_html(snapshot) for snapshot in snapshots]
-
-
 async def _build_formula_items(force: bool = False) -> list[tuple[str, str]]:
     snapshots = await get_formula_snapshots(force=force)
     return [
@@ -253,25 +247,18 @@ def _formula_item_for_rate_id(
 # ── /calc ───────────────────────────────────────────────────────────────
 
 async def cmd_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start the numeric calculator without fetching or displaying rates."""
     if update.message is None:
         return
     if not await _check_access(update):
         return
 
-    await update.message.reply_text("Тооцоолж байна, түр хүлээнэ үү…")
-
-    from datetime import timezone, timedelta
-    _UB_TZ = timezone(timedelta(hours=8))
-    now_ub = datetime.now(_UB_TZ)
-    title = (
-        '<tg-emoji emoji-id="6134203997319342981">\U0001f4b8</tg-emoji> '
-        f'<b>ТООЦООЛСОН ХАНШ</b>  {now_ub:%Y-%m-%d %H:%M}'
+    ctx.user_data["calc_tokens"] = []
+    ctx.user_data["calc_active"] = True
+    await update.message.reply_text(
+        "Тоогоо оруулна уу. Оператор тэмдэг (+, -, *, /) эсвэл '=' ашиглана уу.",
+        reply_markup=_CALC_KEYBOARD,
     )
-
-    formula_lines = await _build_formula_section()
-    text = title + "\n\n" + "\n\n".join(formula_lines) if formula_lines else title + "\n\nТооцоолох боломжгүй."
-
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 async def cmd_rates(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -941,7 +928,7 @@ async def callback_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
             "/add  – валютын хослол нэмэх\n"
             "/list – хадгалсан валютын жагсаалт\n"
             "/rates – ханшийн жагсаалт авах\n"
-            "/calc – тооцоолсон ханш\n"
+            "/calc – тооны машин\n"
             "/remove – валютын хослол хасах\n"
             "/clear – валютын жагсаалт устгах\n"
             "/help – тусламж",
