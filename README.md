@@ -170,6 +170,5 @@ result. The same expression can be entered in Telegram inline mode
 rate with several values, add the displayed field name with spaces and hyphens
 replaced by underscores.
 
-Opening inline mode without a query shows the user's saved-rate shortlist.
-Each choice displays its exact calculator alias; sending it posts a clean rate
-card with a button that reopens inline mode with that alias prefilled.
+Inline mode only returns a result when a calculator expression is entered;
+opening it without an expression does not show rate or formula prompts.

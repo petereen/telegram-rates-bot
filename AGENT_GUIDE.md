@@ -173,6 +173,10 @@ operands must be in that user's saved shortlist and use
 `Provider:PAIR[:field]`. A field is required when a rate has multiple values,
 for example `TDBM:USD/MNT:noncash_sell`.
 
+An empty group or inline mention returns calculator guidance or no result; it
+does not display a saved-rate or formula shortlist. A non-empty mention shows
+only the calculation result.
+
 ## Provider contract and cache
 
 Every provider must:

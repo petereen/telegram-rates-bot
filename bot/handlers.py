@@ -493,14 +493,6 @@ def _evaluate_tokens(tokens: list) -> float:
 
 # ── Calculator message handler (state machine) ────────────────────────
 
-_GROUP_CALCULATOR_HELP = (
-    "Бүлгийн тооцоолол:\n"
-    "<code>@botname CBR:USD/RUB / 2</code>\n\n"
-    "Хадгалсан ханшаа <code>Provider:SYMBOL</code> хэлбэрээр оруулна. "
-    "Олон утгатай ханшид талбараа нэмнэ: "
-    "<code>TDBM:USD/MNT:noncash_sell</code>."
-)
-
 
 def _mention_expression(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str | None:
     """Return the expression after an explicit @botname mention, if present."""
@@ -512,35 +504,16 @@ def _mention_expression(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str |
     return message.text[match.end():].strip() if match else None
 
 
-def _shortlist_calculation_html(
-    expression: str, resolved_expression: str, result: str
-) -> str:
+def _shortlist_calculation_html(result: str) -> str:
+    """Render only the result for calculations requested through a mention."""
+    return f"🧮 <b>Хариу:</b> <code>{_escape_html(result)}</code>"
+
+
+def _mention_calculator_help(username: str | None) -> str:
     return (
-        "🧮 <b>Тооцоолол</b>\n\n"
-        f"{_escape_html(expression)}\n\n"
-        f"<code>{_escape_html(resolved_expression)}</code>\n"
-        f"<b>Хариу:</b> <code>{_escape_html(result)}</code>"
+        "🧮 Тооцоолохын тулд тоон илэрхийлэлтэй хамт mention хийнэ үү: "
+        f"<code>@{username or 'botname'} 100 + 20</code>"
     )
-
-
-async def _shortlist_calculator_help(telegram_id: int, username: str | None) -> str:
-    help_text = _GROUP_CALCULATOR_HELP.replace(
-        "@botname", f"@{username or 'botname'}"
-    )
-    rows = await asyncio.to_thread(get_subscriptions, telegram_id)
-    references = [
-        f"{row['provider']}:{row['symbol']}"
-        for row in rows[:20]
-    ]
-    if not references:
-        return help_text + "\n\nЖагсаалт хоосон байна. /add ашиглан ханш нэмнэ үү."
-    choices = "\n".join(
-        f"• {_escape_html(item.replace(':', ' · ', 1))} — "
-        f"<code>{_escape_html(item)}</code>"
-        for item in references
-    )
-    suffix = "\n…" if len(rows) > len(references) else ""
-    return help_text + f"\n\nТаны сонгож ашиглах ханш:\n{choices}{suffix}"
 
 
 async def _handle_mentioned_calculation(
@@ -553,7 +526,7 @@ async def _handle_mentioned_calculation(
         return
     if not expression:
         await message.reply_text(
-            await _shortlist_calculator_help(user.id, ctx.bot.username),
+            _mention_calculator_help(ctx.bot.username),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -563,11 +536,7 @@ async def _handle_mentioned_calculation(
         await message.reply_text(f"❌ {_escape_html(str(exc))}", parse_mode=ParseMode.HTML)
         return
     await message.reply_text(
-        _shortlist_calculation_html(
-            calculation.expression,
-            calculation.resolved_expression,
-            calculation.result,
-        ),
+        _shortlist_calculation_html(calculation.result),
         parse_mode=ParseMode.HTML,
     )
 
@@ -1121,14 +1090,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
 
     rate_id = (iq.query or "").strip()
     if not rate_id:
-        if not await asyncio.to_thread(is_whitelisted, iq.from_user.id):
-            await iq.answer([], cache_time=0, is_personal=True)
-            return
-        await iq.answer(
-            await _inline_shortlist_results(iq.from_user.id),
-            cache_time=0,
-            is_personal=True,
-        )
+        await iq.answer([], cache_time=0, is_personal=True)
         return
 
     # Three-part IDs are emitted by the existing Share buttons. Everything
@@ -1138,7 +1100,6 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
     )
     calculator_result = None
     normal_calculation = None
-    suggestion_results: list[InlineQueryResultArticle] = []
     try:
         if rate_id.startswith("_b:"):
             token = rate_id[3:]
@@ -1212,11 +1173,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 calculator_result = await calculate_shortlist_expression(
                     iq.from_user.id, rate_id
                 )
-                html_text = _shortlist_calculation_html(
-                    calculator_result.expression,
-                    calculator_result.resolved_expression,
-                    calculator_result.result,
-                )
+                html_text = _shortlist_calculation_html(calculator_result.result)
     except Exception as exc:
         log.error("Inline query error for %s: %s", rate_id, exc)
         error = (
@@ -1225,13 +1182,6 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
             else "Ханш татахад алдаа гарлаа."
         )
         html_text = f"❌ {_escape_html(error)}"
-        if (
-            isinstance(exc, ShortlistCalculationError)
-            and await asyncio.to_thread(is_whitelisted, iq.from_user.id)
-        ):
-            suggestion_results = await _inline_shortlist_results(
-                iq.from_user.id, rate_id
-            )
 
     # Strip <tg-emoji> tags (custom emoji won't render in inline results)
     clean_html = re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', html_text)
@@ -1246,11 +1196,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
         if normal_calculation is not None
         else plain_lines[0][:80]
     )
-    description = (
-        calculator_result.expression[:120]
-        if calculator_result is not None
-        else "\n".join(plain_lines[1:])[:120] or "Ханш хуваалцах"
-    )
+    description = "\n".join(plain_lines[1:])[:120] or "Тооцоолол"
 
     results = [
         InlineQueryResultArticle(
@@ -1262,7 +1208,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 parse_mode=ParseMode.HTML,
             ),
         )
-    ] + suggestion_results
+    ]
     await iq.answer(results[:50], cache_time=0, is_personal=True)
 
 
