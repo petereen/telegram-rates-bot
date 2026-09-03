@@ -49,6 +49,9 @@ class BaseProvider(ABC):
     # Compatibility flag above is retained for third-party providers. New code
     # uses this explicit policy: live (five minutes), hourly, or daily.
     REFRESH_POLICY: str = "live"
+    # Providers can override the default live interval when their source is
+    # useful more frequently than the standard five-minute cache.
+    REFRESH_INTERVAL_SECONDS: int | None = None
     CACHE_UTC_OFFSET_HOURS: int = 8
     PAIRS: dict[str, str] = {}
     FORMULA_FIELDS: dict[str, tuple[str, ...]] = {}
@@ -66,6 +69,11 @@ class BaseProvider(ABC):
     def _policy(self) -> str:
         return "daily" if self.CACHE_DAILY else self.REFRESH_POLICY
 
+    def _refresh_interval_seconds(self) -> int:
+        if self.REFRESH_INTERVAL_SECONDS is not None:
+            return self.REFRESH_INTERVAL_SECONDS
+        return 3600 if self._policy() == "hourly" else 300
+
     def is_fresh(self, fetched_at: datetime, now: datetime | None = None) -> bool:
         now = now or datetime.now(timezone.utc)
         policy = self._policy()
@@ -77,8 +85,7 @@ class BaseProvider(ABC):
             # Before today's window, a snapshot from yesterday remains valid.
             required_window = today_window if now.astimezone(ub) >= today_window else today_window - timedelta(days=1)
             return fetched_at.astimezone(ub) >= required_window
-        seconds = 3600 if policy == "hourly" else 300
-        return now - fetched_at <= timedelta(seconds=seconds)
+        return now - fetched_at <= timedelta(seconds=self._refresh_interval_seconds())
 
     def next_refresh_at(self, fetched_at: datetime | None = None) -> datetime:
         fetched_at = fetched_at or datetime.now(timezone.utc)
@@ -89,7 +96,7 @@ class BaseProvider(ABC):
             if local >= due:
                 due += timedelta(days=1)
             return due.astimezone(timezone.utc)
-        return fetched_at + timedelta(seconds=3600 if self._policy() == "hourly" else 300)
+        return fetched_at + timedelta(seconds=self._refresh_interval_seconds())
 
     def _cacheable(self, data: dict[str, Any], symbol: str) -> bool:
         return any(data.get(field) is not None for field in self.formula_fields(symbol))

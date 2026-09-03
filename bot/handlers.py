@@ -42,6 +42,7 @@ from db.supabase_client import (
     get_share_bundle,
 )
 from providers.base import get_provider, all_providers
+from providers.xe import source_url as xe_source_url
 from bot.keyboards import providers_keyboard, pairs_keyboard, rate_actions_keyboard, share_menu_keyboard
 from services.calculator import (
     CalculationError,
@@ -512,8 +513,16 @@ def _shortlist_calculation_html(result: str) -> str:
 
 def _shortlist_single_rate_html(source: str, pair: str, amount: str) -> str:
     """Render a single inline rate with a copyable amount."""
+    source_label = f"{source} курс"
+    if source.casefold() == "xe":
+        source_html = (
+            f'<a href="{_escape_html(xe_source_url(pair))}">'
+            f"{_escape_html(source_label)}</a>"
+        )
+    else:
+        source_html = f"<b>{_escape_html(source_label)}</b>"
     return (
-        f"<b>{_escape_html(source)} ханш:</b> "
+        f"{source_html}: "
         f"<code>{_escape_html(amount)}</code> "
         f"<b>{_escape_html(pair)}</b>"
     )

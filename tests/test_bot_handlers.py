@@ -136,7 +136,8 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
         result = update.inline_query.answers[0][0][0][0]
         self.assertEqual(
             result.input_message_content.message_text,
-            "<b>XE ханш:</b> <code>156.20</code> <b>USD/JPY</b>",
+            '<a href="https://www.xe.com/currencyconverter/convert/?Amount=1&amp;From=USD&amp;To=JPY">'
+            "XE курс</a>: <code>156.20</code> <b>USD/JPY</b>",
         )
 
     async def test_empty_inline_mention_does_not_list_rates_or_formulas(self) -> None:

@@ -188,7 +188,7 @@ Every provider must:
 
 `BaseProvider.get_rate()` serves a shared snapshot until the provider's policy
 is due, then refreshes it under a short Supabase lease. Binance and Rapira use
-five minutes; XE and Profinance use one hour; bank and central-bank feeds use
+five minutes; XE uses one minute and Profinance uses one hour; bank and central-bank feeds use
 the next configurable daily Ulaanbaatar refresh window (09:00 by default).
 The dedicated `refresher` Compose service updates only unique subscription and
 enabled-formula dependencies. User refreshes remain cache-aware; only the

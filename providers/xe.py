@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 from bs4 import BeautifulSoup
@@ -37,10 +38,18 @@ _HEADERS = {
 XE_CONVERT_URL = "https://www.xe.com/currencyconverter/convert/"
 
 
+def source_url(symbol: str) -> str:
+    """Return the public XE conversion page for a currency pair."""
+    base, counter = symbol.split("/", 1)
+    query = urlencode({"Amount": "1", "From": base, "To": counter})
+    return f"{XE_CONVERT_URL}?{query}"
+
+
 @register_provider
 class XEProvider(BaseProvider):
     NAME = "XE"
     REFRESH_POLICY = "hourly"
+    REFRESH_INTERVAL_SECONDS = 60
     PAIRS = {
         "USD/RUB": "US Dollar → Ruble",
         "EUR/RUB": "Euro → Ruble",

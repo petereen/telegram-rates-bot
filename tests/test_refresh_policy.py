@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from providers.base import BaseProvider
+from providers.xe import XEProvider
 
 
 class PolicyProvider(BaseProvider):
@@ -32,3 +33,9 @@ class RefreshPolicyTests(unittest.TestCase):
         # 09:30 UB: the old snapshot is due for refresh.
         now = datetime(2026, 1, 2, 1, 30, tzinfo=timezone.utc)
         self.assertFalse(provider.is_fresh(datetime(2026, 1, 1, 1, 1, tzinfo=timezone.utc), now))
+
+    def test_xe_refreshes_after_one_minute(self):
+        provider = XEProvider()
+        now = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+        self.assertTrue(provider.is_fresh(now - timedelta(minutes=1), now))
+        self.assertFalse(provider.is_fresh(now - timedelta(minutes=1, seconds=1), now))
