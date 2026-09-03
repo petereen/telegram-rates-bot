@@ -1,6 +1,7 @@
 # Project Task Tracker
 
 ## Current Milestone
+- [x] Force live rate refresh for inline mode and Mini App refresh/load (bot/handlers.py, services/group_calculator.py, api/app.py, tests/)
 - [x] Render all inline calculator amounts with exactly two decimals (bot/handlers.py, tests/)
 - [x] Disable previews for linked single-rate inline results (bot/handlers.py, tests/)
 - [x] Refresh XE subscriptions every minute and link Russian single-rate inline labels (providers/base.py, providers/xe.py, bot/handlers.py, tests/)

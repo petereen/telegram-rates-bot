@@ -191,8 +191,9 @@ is due, then refreshes it under a short Supabase lease. Binance and Rapira use
 five minutes; XE uses one minute and Profinance uses one hour; bank and central-bank feeds use
 the next configurable daily Ulaanbaatar refresh window (09:00 by default).
 The dedicated `refresher` Compose service updates only unique subscription and
-enabled-formula dependencies. User refreshes remain cache-aware; only the
-authenticated agent API can explicitly force an upstream refresh.
+enabled-formula dependencies. Bot `/rates` remains cache-aware, while Mini App
+load/refresh requests and inline calculator rate lookups explicitly force an
+upstream refresh. The authenticated agent API can also explicitly force one.
 
 Registered through `providers/registry.py`: `CBR`, `XE`, `Binance`, `Rapira`,
 `Profinance`, `BOC`, and all 15 institutions exposed by

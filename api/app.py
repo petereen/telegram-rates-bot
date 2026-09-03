@@ -471,7 +471,9 @@ async def _subscription_snapshots(user: AuthUser, force: bool = False) -> list[R
 
 @app.get("/api/rates")
 async def rates(user: AuthUser = Depends(current_user)) -> dict[str, Any]:
-    snapshots = await _subscription_snapshots(user)
+    # The Mini App loads this endpoint on app launch/browser refresh. Always
+    # obtain the latest upstream values for that user-visible refresh.
+    snapshots = await _subscription_snapshots(user, force=True)
     return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
 
 
@@ -684,9 +686,8 @@ async def refresh_rates(
     keys = payload.keys
     if not keys:
         keys = sorted(await _allowed_keys(user))
-    # A user refresh is cache-aware. Stale/missing entries refresh in the
-    # request path; a warm cache never causes another paid upstream call.
-    snapshots = await _resolve_keys(user, keys, force=False)
+    # The Mini App refresh action explicitly requests new upstream values.
+    snapshots = await _resolve_keys(user, keys, force=True)
     return {"rates": [snapshot.to_dict() for snapshot in snapshots]}
 
 

@@ -1045,7 +1045,7 @@ async def _inline_shortlist_results(
 
     fetched = await asyncio.gather(
         *(
-            asyncio.to_thread(get_rate_snapshot, row["provider"], row["symbol"])
+            asyncio.to_thread(get_rate_snapshot, row["provider"], row["symbol"], True)
             for row in rows
         ),
         return_exceptions=True,
@@ -1165,7 +1165,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
             sym = parts[1]
             line_idx = int(parts[2]) if len(parts) > 2 else 0
             prov = get_provider(prov_name)
-            rate_data = await asyncio.to_thread(prov.get_rate, sym)
+            rate_data = await asyncio.to_thread(prov.refresh_rate, sym, force=True)
             emoji_tag = _PROVIDER_EMOJI.get(prov_name, "")
             header = (
                 f"{emoji_tag} <b>{_escape_html(prov_name)}</b>"
@@ -1191,7 +1191,7 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 html_text = render_normal_calculation(normal_tokens)
             except CalculationError:
                 calculator_result = await calculate_shortlist_expression(
-                    iq.from_user.id, rate_id
+                    iq.from_user.id, rate_id, force=True
                 )
                 if calculator_result.single_rate is not None:
                     html_text = _shortlist_single_rate_html(

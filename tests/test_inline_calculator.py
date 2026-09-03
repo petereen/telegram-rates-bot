@@ -21,12 +21,15 @@ class InlineCalculatorTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "bot.handlers.get_subscriptions",
             return_value=[{"provider": "TDBM", "symbol": "USD/MNT"}],
-        ), patch("bot.handlers.get_rate_snapshot", return_value=snapshot), patch(
+        ), patch(
+            "bot.handlers.get_rate_snapshot", return_value=snapshot
+        ) as get_rate_snapshot, patch(
             "bot.handlers.get_formula_snapshots", return_value=[]
         ):
             results = await _inline_shortlist_results(1)
 
         self.assertEqual(len(results), 2)
+        get_rate_snapshot.assert_called_once_with("TDBM", "USD/MNT", True)
         self.assertIn("TDBM:USD/MNT:cash_buy", results[0].description)
         self.assertIn(
             "<b>Бэлэн авах:</b> <code>3500</code>",

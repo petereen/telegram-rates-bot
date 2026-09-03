@@ -101,7 +101,7 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
         with patch("bot.handlers.is_whitelisted", return_value=True), patch(
             "bot.handlers.calculate_shortlist_expression",
             new=AsyncMock(return_value=calculation),
-        ):
+        ) as calculate_expression:
             await inline_query_handler(update, None)
 
         result = update.inline_query.answers[0][0][0][0]
@@ -131,8 +131,10 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
         with patch("bot.handlers.is_whitelisted", return_value=True), patch(
             "bot.handlers.calculate_shortlist_expression",
             new=AsyncMock(return_value=calculation),
-        ):
+        ) as calculate_expression:
             await inline_query_handler(update, None)
+
+        calculate_expression.assert_awaited_once_with(1, "XE:USD/JPY", force=True)
 
         result = update.inline_query.answers[0][0][0][0]
         self.assertEqual(result.title, "= 156.20")

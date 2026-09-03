@@ -180,7 +180,7 @@ def _display_reference(reference: str) -> str:
 
 
 async def calculate_shortlist_expression(
-    telegram_id: int, text: str
+    telegram_id: int, text: str, *, force: bool = False
 ) -> ShortlistCalculation:
     """Resolve saved-rate references and evaluate them with the shared calculator."""
     parsed = parse_shortlist_expression(text)
@@ -190,7 +190,7 @@ async def calculate_shortlist_expression(
         reference for reference in references if _is_formula_reference(reference)
     ]
     formula_snapshots = (
-        await get_formula_snapshots()
+        await get_formula_snapshots(force=force)
         if formula_references
         else []
     )
@@ -205,14 +205,16 @@ async def calculate_shortlist_expression(
         else:
             selected_rates.setdefault(reference, _match_subscription(reference, rows))
 
-    snapshots = await asyncio.gather(
-        *(
-            asyncio.to_thread(
-                get_rate_snapshot, row["provider"], row["symbol"]
-            )
-            for row in selected_rates.values()
+    snapshot_tasks = [
+        asyncio.to_thread(
+            get_rate_snapshot,
+            row["provider"],
+            row["symbol"],
+            *(True,) if force else (),
         )
-    )
+        for row in selected_rates.values()
+    ]
+    snapshots = await asyncio.gather(*snapshot_tasks)
     resolved = {
         reference: _select_value(reference, snapshot)
         for reference, snapshot in zip(selected_rates, snapshots)

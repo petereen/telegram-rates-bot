@@ -76,10 +76,13 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "services.group_calculator.get_rate_snapshot",
             return_value=snapshot,
-        ):
-            result = await calculate_shortlist_expression(1, "XE:USD/JPY")
+        ) as get_snapshot:
+            result = await calculate_shortlist_expression(
+                1, "XE:USD/JPY", force=True
+            )
 
         self.assertEqual(result.single_rate, ("XE", "USD/JPY", "156.20"))
+        get_snapshot.assert_called_once_with("XE", "USD/JPY", True)
 
     async def test_calculated_formula_can_be_used_as_operand(self) -> None:
         formula = RateSnapshot(

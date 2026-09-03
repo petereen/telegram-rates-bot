@@ -178,7 +178,7 @@ class ApiTests(unittest.TestCase):
                 json={"calculatorMode": "legacy"},
             )
         self.assertEqual(response.status_code, 200)
-            setter.assert_called_once_with("legacy")
+        setter.assert_called_once_with("legacy")
 
 
     def test_subscription_is_idempotently_returned(self) -> None:
@@ -224,6 +224,47 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["rates"][0]["pair"], "USD/MNT")
         get_snapshot.assert_called_once_with("TDBM", "USD/MNT")
+
+    def test_app_rates_always_force_refreshes(self) -> None:
+        snapshot = RateSnapshot(
+            key="rate:XE:USD/JPY",
+            kind="subscription",
+            source="XE",
+            pair="USD/JPY",
+            values=[RateValue("value", "156.2")],
+            fetched_at="2026-07-30T00:00:00+00:00",
+        )
+        with patch("api.app.get_subscriptions", return_value=[{
+            "provider": "XE", "symbol": "USD/JPY"
+        }]), patch(
+            "api.app.get_rate_snapshot", return_value=snapshot
+        ) as get_snapshot:
+            response = self.client.get("/api/rates")
+
+        self.assertEqual(response.status_code, 200)
+        get_snapshot.assert_called_once_with("XE", "USD/JPY", True)
+
+    def test_app_refresh_action_always_force_refreshes(self) -> None:
+        snapshot = RateSnapshot(
+            key="rate:XE:USD/JPY",
+            kind="subscription",
+            source="XE",
+            pair="USD/JPY",
+            values=[RateValue("value", "156.2")],
+            fetched_at="2026-07-30T00:00:00+00:00",
+        )
+        with patch(
+            "api.app._resolve_keys", new=AsyncMock(return_value=[snapshot])
+        ) as resolve_keys:
+            response = self.client.post(
+                "/api/rates/refresh",
+                json={"keys": ["rate:XE:USD/JPY"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        resolve_keys.assert_awaited_once_with(
+            unittest.mock.ANY, ["rate:XE:USD/JPY"], force=True
+        )
 
     def test_formula_create_validates_and_returns_definition(self) -> None:
         row = {
