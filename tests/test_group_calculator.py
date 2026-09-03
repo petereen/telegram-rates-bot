@@ -61,6 +61,26 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_single_rate_preserves_source_pair_and_amount(self) -> None:
+        snapshot = RateSnapshot(
+            key="rate:XE:USD/JPY",
+            kind="subscription",
+            source="XE",
+            pair="USD/JPY",
+            values=[RateValue("value", "156.20")],
+            fetched_at="2026-01-01T00:00:00Z",
+        )
+        with patch(
+            "services.group_calculator.get_subscriptions",
+            return_value=[{"provider": "XE", "symbol": "USD/JPY"}],
+        ), patch(
+            "services.group_calculator.get_rate_snapshot",
+            return_value=snapshot,
+        ):
+            result = await calculate_shortlist_expression(1, "XE:USD/JPY")
+
+        self.assertEqual(result.single_rate, ("XE", "USD/JPY", "156.20"))
+
     async def test_calculated_formula_can_be_used_as_operand(self) -> None:
         formula = RateSnapshot(
             key="formula:delcrado",

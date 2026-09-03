@@ -33,6 +33,7 @@ class ShortlistCalculation:
     result: str
     resolved_expression: str
     tape_entries: list[dict[str, Any]]
+    single_rate: tuple[str, str, str] | None = None
 
 
 # A reference is deliberately explicit. A symbol may be a conventional pair,
@@ -263,9 +264,16 @@ async def calculate_shortlist_expression(
         calculation = evaluate_tokens(calculator_tokens)
     except CalculationError as exc:
         raise ShortlistCalculationError(str(exc)) from exc
+    single_rate = None
+    if len(parsed) == 1 and isinstance(parsed[0], RateReference):
+        reference = parsed[0]
+        amount, _ = resolved[reference]
+        source = "Тооцоолсон" if _is_formula_reference(reference) else reference.provider
+        single_rate = (source, reference.symbol, amount)
     return ShortlistCalculation(
         expression=" ".join(display_tokens),
         result=calculation["result"],
         resolved_expression=" ".join(resolved_tokens),
         tape_entries=tape_entries,
+        single_rate=single_rate,
     )

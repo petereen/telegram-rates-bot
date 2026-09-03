@@ -116,6 +116,29 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("BOC", message_text)
         self.assertNotIn("Хариу", message_text)
 
+    async def test_inline_single_rate_uses_copyable_source_format(self) -> None:
+        update = _InlineUpdate()
+        update.inline_query.query = "XE:USD/JPY"
+        calculation = ShortlistCalculation(
+            expression="XE · USD/JPY (ханш)",
+            result="156.2",
+            resolved_expression="156.20",
+            tape_entries=[{"operator": "+", "value": "156.20"}],
+            single_rate=("XE", "USD/JPY", "156.20"),
+        )
+
+        with patch("bot.handlers.is_whitelisted", return_value=True), patch(
+            "bot.handlers.calculate_shortlist_expression",
+            new=AsyncMock(return_value=calculation),
+        ):
+            await inline_query_handler(update, None)
+
+        result = update.inline_query.answers[0][0][0][0]
+        self.assertEqual(
+            result.input_message_content.message_text,
+            "<b>XE ханш:</b> <code>156.20</code> <b>USD/JPY</b>",
+        )
+
     async def test_empty_inline_mention_does_not_list_rates_or_formulas(self) -> None:
         update = _InlineUpdate()
 

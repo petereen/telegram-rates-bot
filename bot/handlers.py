@@ -510,6 +510,15 @@ def _shortlist_calculation_html(result: str) -> str:
     return f"🧮 <b>Хариу:</b> <code>{_escape_html(result)}</code>"
 
 
+def _shortlist_single_rate_html(source: str, pair: str, amount: str) -> str:
+    """Render a single inline rate with a copyable amount."""
+    return (
+        f"<b>{_escape_html(source)} ханш:</b> "
+        f"<code>{_escape_html(amount)}</code> "
+        f"<b>{_escape_html(pair)}</b>"
+    )
+
+
 def _mention_calculator_help(username: str | None) -> str:
     return (
         "🧮 Тооцоолохын тулд тоон илэрхийлэлтэй хамт mention хийнэ үү: "
@@ -1174,9 +1183,14 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 calculator_result = await calculate_shortlist_expression(
                     iq.from_user.id, rate_id
                 )
-                html_text = render_normal_calculation(
-                    tape_entries_to_tokens(calculator_result.tape_entries)
-                )
+                if calculator_result.single_rate is not None:
+                    html_text = _shortlist_single_rate_html(
+                        *calculator_result.single_rate
+                    )
+                else:
+                    html_text = render_normal_calculation(
+                        tape_entries_to_tokens(calculator_result.tape_entries)
+                    )
     except Exception as exc:
         log.error("Inline query error for %s: %s", rate_id, exc)
         error = (
