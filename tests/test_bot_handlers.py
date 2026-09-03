@@ -106,6 +106,7 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         result = update.inline_query.answers[0][0][0][0]
         message_text = result.input_message_content.message_text
+        self.assertEqual(result.title, "= 72.50")
         self.assertEqual(
             message_text,
             "<pre>+ 7.25\n"
@@ -124,7 +125,7 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
             result="156.2",
             resolved_expression="156.20",
             tape_entries=[{"operator": "+", "value": "156.20"}],
-            single_rate=("XE", "USD/JPY", "156.20"),
+            single_rate=("XE", "USD/JPY", "156.2"),
         )
 
         with patch("bot.handlers.is_whitelisted", return_value=True), patch(
@@ -134,11 +135,13 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
             await inline_query_handler(update, None)
 
         result = update.inline_query.answers[0][0][0][0]
+        self.assertEqual(result.title, "= 156.20")
         self.assertEqual(
             result.input_message_content.message_text,
             '<a href="https://www.xe.com/currencyconverter/convert/?Amount=1&amp;From=USD&amp;To=JPY">'
             "XE курс</a>: <code>156.20</code> <b>USD/JPY</b>",
         )
+        self.assertTrue(result.input_message_content.link_preview_options.is_disabled)
 
     async def test_empty_inline_mention_does_not_list_rates_or_formulas(self) -> None:
         update = _InlineUpdate()

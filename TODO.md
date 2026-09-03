@@ -1,6 +1,8 @@
 # Project Task Tracker
 
 ## Current Milestone
+- [x] Render all inline calculator amounts with exactly two decimals (bot/handlers.py, tests/)
+- [x] Disable previews for linked single-rate inline results (bot/handlers.py, tests/)
 - [x] Refresh XE subscriptions every minute and link Russian single-rate inline labels (providers/base.py, providers/xe.py, bot/handlers.py, tests/)
 - [x] Format single-rate inline results as source, copyable amount, and pair (bot/handlers.py, services/group_calculator.py, tests/)
 - [x] Match inline bank-rate output to the numeric-only calctape format (bot/handlers.py, services/group_calculator.py, tests/)

@@ -17,6 +17,7 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    LinkPreviewOptions,
     ReplyKeyboardMarkup,
     Update,
 )
@@ -523,7 +524,7 @@ def _shortlist_single_rate_html(source: str, pair: str, amount: str) -> str:
         source_html = f"<b>{_escape_html(source_label)}</b>"
     return (
         f"{source_html}: "
-        f"<code>{_escape_html(amount)}</code> "
+        f"<code>{_escape_html(format_hundredths(amount))}</code> "
         f"<b>{_escape_html(pair)}</b>"
     )
 
@@ -1216,13 +1217,17 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
     plain = re.sub(r"<[^>]+>", "", clean_html)
     plain_lines = plain.split("\n")
     title = (
-        f"= {calculator_result.result}"
+        f"= {format_hundredths(calculator_result.result)}"
         if calculator_result is not None
         else f"= {format_hundredths(normal_calculation['result'])}"
         if normal_calculation is not None
         else plain_lines[0][:80]
     )
     description = "\n".join(plain_lines[1:])[:120] or "Тооцоолол"
+    single_rate_inline = (
+        calculator_result is not None
+        and calculator_result.single_rate is not None
+    )
 
     results = [
         InlineQueryResultArticle(
@@ -1232,6 +1237,11 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
             input_message_content=InputTextMessageContent(
                 message_text=clean_html,
                 parse_mode=ParseMode.HTML,
+                link_preview_options=(
+                    LinkPreviewOptions(is_disabled=True)
+                    if single_rate_inline
+                    else None
+                ),
             ),
         )
     ]
