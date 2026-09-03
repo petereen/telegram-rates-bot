@@ -32,6 +32,7 @@ class ShortlistCalculation:
     expression: str
     result: str
     resolved_expression: str
+    tape_entries: list[dict[str, Any]]
 
 
 # A reference is deliberately explicit. A symbol may be a conventional pair,
@@ -225,17 +226,39 @@ async def calculate_shortlist_expression(
     calculator_tokens: list[str] = []
     display_tokens: list[str] = []
     resolved_tokens: list[str] = []
+    tape_entries: list[dict[str, Any]] = []
+    pending_operator = "+"
     for token in parsed:
         if isinstance(token, RateReference):
             amount, label = resolved[token]
             calculator_tokens.append(amount)
             display_tokens.append(_display_reference(label))
             resolved_tokens.append(amount)
+            tape_entries.append({
+                "operator": pending_operator,
+                "value": amount,
+                "label": _display_reference(label),
+            })
+            pending_operator = "+"
         else:
             calculator_tokens.append(token)
             displayed_token = {"*": "×", "/": "÷"}.get(token, token)
             display_tokens.append(displayed_token)
             resolved_tokens.append(displayed_token)
+            if token in {"+", "-", "*", "/"}:
+                pending_operator = token
+            elif token.endswith("%"):
+                tape_entries.append({
+                    "operator": "-" if token.startswith("-") else "+",
+                    "value": token.lstrip("+-"),
+                    "percentage": True,
+                })
+            else:
+                tape_entries.append({
+                    "operator": pending_operator,
+                    "value": token,
+                })
+                pending_operator = "+"
 
     try:
         calculation = evaluate_tokens(calculator_tokens)
@@ -245,4 +268,5 @@ async def calculate_shortlist_expression(
         expression=" ".join(display_tokens),
         result=calculation["result"],
         resolved_expression=" ".join(resolved_tokens),
+        tape_entries=tape_entries,
     )

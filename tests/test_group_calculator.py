@@ -53,6 +53,13 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.expression, "BOC · USD (авах) × 10")
         self.assertEqual(result.resolved_expression, "7.25 × 10")
         self.assertEqual(result.result, "72.5")
+        self.assertEqual(
+            result.tape_entries,
+            [
+                {"operator": "+", "value": "7.25", "label": "BOC · USD (авах)"},
+                {"operator": "*", "value": "10"},
+            ],
+        )
 
     async def test_calculated_formula_can_be_used_as_operand(self) -> None:
         formula = RateSnapshot(

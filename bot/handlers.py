@@ -1173,7 +1173,10 @@ async def inline_query_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -
                 calculator_result = await calculate_shortlist_expression(
                     iq.from_user.id, rate_id
                 )
-                html_text = _shortlist_calculation_html(calculator_result.result)
+                html_text = render_tape_html(
+                    "Тооцоолол",
+                    calculator_result.tape_entries,
+                )
     except Exception as exc:
         log.error("Inline query error for %s: %s", rate_id, exc)
         error = (

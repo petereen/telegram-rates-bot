@@ -7,6 +7,7 @@ from bot.handlers import (
     _shortlist_calculation_html,
     cmd_calc,
 )
+from services.group_calculator import ShortlistCalculation
 
 
 class _Message:
@@ -83,6 +84,32 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
         rendered = _shortlist_calculation_html("40")
 
         self.assertEqual(rendered, "🧮 <b>Хариу:</b> <code>40</code>")
+
+    async def test_inline_bank_calculation_uses_calctape_format(self) -> None:
+        update = _InlineUpdate()
+        update.inline_query.query = "BOC:USD:buy * 10"
+        calculation = ShortlistCalculation(
+            expression="BOC · USD (авах) × 10",
+            result="72.5",
+            resolved_expression="7.25 × 10",
+            tape_entries=[
+                {"operator": "+", "value": "7.25", "label": "BOC · USD (авах)"},
+                {"operator": "*", "value": "10"},
+            ],
+        )
+
+        with patch("bot.handlers.is_whitelisted", return_value=True), patch(
+            "bot.handlers.calculate_shortlist_expression",
+            new=AsyncMock(return_value=calculation),
+        ):
+            await inline_query_handler(update, None)
+
+        result = update.inline_query.answers[0][0][0][0]
+        message_text = result.input_message_content.message_text
+        self.assertIn("🧾 <b>Тооцоолол</b>", message_text)
+        self.assertIn("<code>+ 7.25</code>", message_text)
+        self.assertIn("<i>BOC · USD (авах)</i>", message_text)
+        self.assertNotIn("🧮 <b>Хариу:</b>", message_text)
 
     async def test_empty_inline_mention_does_not_list_rates_or_formulas(self) -> None:
         update = _InlineUpdate()
