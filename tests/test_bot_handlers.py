@@ -106,10 +106,15 @@ class BotHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         result = update.inline_query.answers[0][0][0][0]
         message_text = result.input_message_content.message_text
-        self.assertIn("🧾 <b>Тооцоолол</b>", message_text)
-        self.assertIn("<code>+ 7.25</code>", message_text)
-        self.assertIn("<i>BOC · USD (авах)</i>", message_text)
-        self.assertNotIn("🧮 <b>Хариу:</b>", message_text)
+        self.assertEqual(
+            message_text,
+            "<pre>+ 7.25\n"
+            "* 10.00\n"
+            "---------------\n"
+            "+ 72.50</pre>",
+        )
+        self.assertNotIn("BOC", message_text)
+        self.assertNotIn("Хариу", message_text)
 
     async def test_empty_inline_mention_does_not_list_rates_or_formulas(self) -> None:
         update = _InlineUpdate()

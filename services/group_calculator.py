@@ -237,7 +237,6 @@ async def calculate_shortlist_expression(
             tape_entries.append({
                 "operator": pending_operator,
                 "value": amount,
-                "label": _display_reference(label),
             })
             pending_operator = "+"
         else:

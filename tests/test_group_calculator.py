@@ -56,7 +56,7 @@ class GroupCalculatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result.tape_entries,
             [
-                {"operator": "+", "value": "7.25", "label": "BOC · USD (авах)"},
+                {"operator": "+", "value": "7.25"},
                 {"operator": "*", "value": "10"},
             ],
         )
